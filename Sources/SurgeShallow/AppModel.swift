@@ -49,6 +49,9 @@ final class AppModel {
     var presentedError: String?
     var previewTitle = ""
     var previewContent: String?
+    var isChoosingProfileImport = false
+    var isParsingProfileImport = false
+    var pendingProfileImport: ProfileImportDraft?
     var isStarted = false
 
     private let engine = RelayEngine()
@@ -94,6 +97,11 @@ final class AppModel {
 
         if ProcessInfo.processInfo.arguments.contains("--verification-mode") {
             statusMessage = "验证模式：未启动自动刷新"
+            if let previewPath = ProcessInfo.processInfo.environment[
+                "SURGE_SHALLOW_VERIFICATION_IMPORT_PROFILE"
+            ], !previewPath.isEmpty {
+                prepareFullProfileImport(from: URL(filePath: previewPath))
+            }
             return
         }
 
@@ -148,10 +156,24 @@ final class AppModel {
 
     func upsertSource(_ source: RuleSource) {
         guard canMutateConfiguration() else { return }
+        var source = source
+        if let reference = RemoteRulesetReference.parse(source.url) {
+            source.url = reference.url
+            source.policy = reference.policy
+            source.format = .surgeRuleset
+            source.preservesSourcePolicy = false
+            source.rulesetOptions = reference.options
+        } else if source.format == .surgeRuleset {
+            source.preservesSourcePolicy = false
+        }
         if let index = document.sources.firstIndex(where: { $0.id == source.id }) {
             let old = document.sources[index]
             document.sources[index] = source
-            if old.url != source.url || old.format != source.format || old.policy != source.policy {
+            if old.url != source.url
+                || old.embeddedContent != source.embeddedContent
+                || old.format != source.format
+                || old.policy != source.policy
+                || old.rulesetOptions != source.rulesetOptions {
                 document.sources[index].etag = nil
                 document.sources[index].lastModified = nil
                 document.sources[index].lastCheckedAt = nil
@@ -290,6 +312,56 @@ final class AppModel {
                 }
             }
         )
+    }
+
+    func beginFullProfileImport() {
+        guard canMutateConfiguration() else { return }
+        isChoosingProfileImport = true
+    }
+
+    func prepareFullProfileImport(from url: URL) {
+        guard canMutateConfiguration() else { return }
+        isParsingProfileImport = true
+        statusMessage = "正在分析 \(url.lastPathComponent)…"
+        Task {
+            defer { isParsingProfileImport = false }
+            do {
+                let draft = try await Task.detached(priority: .userInitiated) {
+                    let didAccess = url.startAccessingSecurityScopedResource()
+                    defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+                    let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                    return try ProfileImportService.parse(data: data, fileName: url.lastPathComponent)
+                }.value
+                pendingProfileImport = draft
+                statusMessage = "已完成迁移分析，等待确认"
+            } catch {
+                presentedError = "无法导入 Profile：\(error.localizedDescription)"
+                statusMessage = "Profile 分析失败"
+            }
+        }
+    }
+
+    func applyFullProfileImport(platforms: Set<RelayPlatform>) {
+        guard canMutateConfiguration(),
+              !platforms.isEmpty,
+              let draft = pendingProfileImport else { return }
+        let previous = document
+        document = ProfileImportService.applying(draft, to: document, platforms: platforms)
+        let persistence = RelayPersistence(outputDirectory: outputDirectoryURL)
+        do {
+            try persistence.saveDocument(document)
+            pendingProfileImport = nil
+            selection = .profiles
+            statusMessage = "已迁移 \(draft.fileName)，请检查后更新并合并"
+        } catch {
+            document = previous
+            presentedError = "迁移配置未保存：\(error.localizedDescription)"
+        }
+    }
+
+    func cancelFullProfileImport() {
+        pendingProfileImport = nil
+        statusMessage = "已取消 Profile 迁移"
     }
 
     private func importProfile(

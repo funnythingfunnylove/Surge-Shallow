@@ -3,6 +3,61 @@ import XCTest
 @testable import SurgeProfileRelayCore
 
 final class RelayDocumentMigrationTests: XCTestCase {
+    func testSchemaFiveSourceWithoutRulesetFieldsStillDecodes() throws {
+        let sourceID = UUID()
+        let legacyJSON = """
+        {
+          "schemaVersion": 5,
+          "sources": [
+            {
+              "id": "\(sourceID.uuidString)",
+              "name": "Legacy URL",
+              "url": "https://example.com/rules.list",
+              "format": "surgeRuleList",
+              "policy": "PROXY",
+              "preservesSourcePolicy": false,
+              "isEnabled": true,
+              "platforms": ["macOS", "iOS"],
+              "updateIntervalMinutes": 0,
+              "createdAt": 0,
+              "lastRuleCount": 0,
+              "state": "never"
+            }
+          ],
+          "sharedProfile": {
+            "outputFileName": "Surge Shallow Shared.dconf",
+            "preamble": "",
+            "generalOptions": [],
+            "proxies": [],
+            "proxyGroups": [],
+            "advancedProfile": ""
+          },
+          "targets": [],
+          "settings": {
+            "outputDirectory": "/tmp",
+            "automaticallyRefresh": true,
+            "refreshOnLaunch": true,
+            "refreshIntervalMinutes": 60,
+            "validateWithSurgeCLI": true,
+            "launchAtLogin": false,
+            "requestTimeoutSeconds": 30,
+            "maximumSourceSizeMB": 10
+          },
+          "history": []
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .secondsSince1970
+
+        let migrated = try decoder.decode(RelayDocument.self, from: Data(legacyJSON.utf8))
+        let source = try XCTUnwrap(migrated.sources.first)
+
+        XCTAssertEqual(migrated.schemaVersion, RelayDocument.currentSchemaVersion)
+        XCTAssertEqual(source.id, sourceID)
+        XCTAssertNil(source.embeddedContent)
+        XCTAssertNil(source.rulesetOptions)
+    }
+
     func testSchemaOneProfilesExtractIdenticalSectionsAndPreserveDifferences() throws {
         let common = """
         [General]
@@ -83,7 +138,7 @@ final class RelayDocumentMigrationTests: XCTestCase {
         let migrated = try decoder.decode(RelayDocument.self, from: encoder.encode(legacy))
         let target = try XCTUnwrap(migrated.targets.first)
 
-        XCTAssertEqual(migrated.schemaVersion, 4)
+        XCTAssertEqual(migrated.schemaVersion, RelayDocument.currentSchemaVersion)
         XCTAssertTrue(target.platformDifferences.contains {
             $0.section == "General" && $0.key == "include-all-networks" && $0.value == "true"
         })
@@ -130,7 +185,7 @@ final class RelayDocumentMigrationTests: XCTestCase {
         let migrated = try decoder.decode(RelayDocument.self, from: encoder.encode(legacy))
         let shared = migrated.sharedProfile
 
-        XCTAssertEqual(migrated.schemaVersion, 4)
+        XCTAssertEqual(migrated.schemaVersion, RelayDocument.currentSchemaVersion)
         XCTAssertEqual(shared.preamble, "# keep preamble")
         XCTAssertTrue(shared.generalOptions.contains {
             $0.key == "loglevel" && $0.value == "info"

@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
@@ -8,20 +9,7 @@ struct RootView: View {
         @Bindable var model = model
 
         NavigationSplitView {
-            List(selection: $model.selection) {
-                Section("管理") {
-                    ForEach(SidebarDestination.allCases.filter { $0 != .settings }) { destination in
-                        Label(destination.title, systemImage: destination.symbol)
-                            .tag(destination)
-                    }
-                }
-                Section {
-                    Label(SidebarDestination.settings.title, systemImage: SidebarDestination.settings.symbol)
-                        .tag(SidebarDestination.settings)
-                }
-            }
-            .navigationTitle("Profile Relay")
-            .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 270)
+            RelaySidebar(selection: $model.selection)
         } detail: {
             destinationView
                 .toolbar {
@@ -32,10 +20,27 @@ struct RootView: View {
                             Label("更新并合并", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                         }
                         .disabled(model.isRefreshing)
+                        .buttonStyle(.glassProminent)
                     }
                 }
         }
         .navigationSplitViewStyle(.balanced)
+        .tint(SurgePalette.accent)
+        .background(SurgeBackground())
+        .fileImporter(
+            isPresented: $model.isChoosingProfileImport,
+            allowedContentTypes: [.plainText, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    model.prepareFullProfileImport(from: url)
+                }
+            case .failure(let error):
+                model.presentedError = "无法选择 Profile：\(error.localizedDescription)"
+            }
+        }
         .alert(
             "Surge Shallow",
             isPresented: Binding(
@@ -59,6 +64,18 @@ struct RootView: View {
                 onDismiss: model.dismissPreview
             )
         }
+        .sheet(item: $model.pendingProfileImport) { draft in
+            ProfileImportReviewView(draft: draft)
+                .environment(model)
+        }
+        .overlay {
+            if model.isParsingProfileImport {
+                GlassProgressOverlay(
+                    title: "正在分析 Profile",
+                    detail: "识别通用配置、平台差异、Proxy、策略组与规则…"
+                )
+            }
+        }
     }
 
     @ViewBuilder
@@ -71,6 +88,35 @@ struct RootView: View {
         case .history: HistoryView()
         case .settings: SettingsView()
         }
+    }
+}
+
+private struct RelaySidebar: View {
+    @Binding var selection: SidebarDestination
+
+    private let managementDestinations: [SidebarDestination] = [
+        .dashboard, .sources, .proxy, .profiles, .history
+    ]
+
+    var body: some View {
+        List(selection: $selection) {
+            Section("管理") {
+                ForEach(managementDestinations) { destination in
+                    Label {
+                        Text(destination.title)
+                    } icon: {
+                        Image(systemName: destination.symbol)
+                    }
+                    .tag(destination)
+                }
+            }
+            Section {
+                Label("设置", systemImage: SidebarDestination.settings.symbol)
+                    .tag(SidebarDestination.settings)
+            }
+        }
+        .navigationTitle("Surge Shallow")
+        .navigationSplitViewColumnWidth(min: 190, ideal: 220, max: 270)
     }
 }
 

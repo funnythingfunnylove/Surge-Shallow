@@ -144,7 +144,9 @@ public actor RelayEngine {
             guard let material = materials[document.sources[index].id] else { continue }
             document.sources[index].state = material.state
             document.sources[index].lastError = material.errorMessage
-            document.sources[index].lastRuleCount = material.parsed?.rules.count ?? 0
+            document.sources[index].lastRuleCount = material.parsed?.rules.filter {
+                !$0.hasPrefix("#!")
+            }.count ?? 0
             if let checkedAt = material.checkedAt { document.sources[index].lastCheckedAt = checkedAt }
             if let updatedAt = material.updatedAt { document.sources[index].lastUpdatedAt = updatedAt }
             if material.receivedMetadata {

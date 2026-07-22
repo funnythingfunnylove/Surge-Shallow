@@ -74,7 +74,7 @@ public enum RuleParser {
         let format = source.format == .automatic ? detectFormat(normalized) : source.format
         let candidates: [String]
         switch format {
-        case .automatic, .surgeRuleList:
+        case .automatic, .surgeRuleList, .surgeRuleset:
             candidates = normalized.components(separatedBy: "\n")
         case .surgeProfile:
             candidates = try extractRuleSection(from: normalized)
@@ -202,14 +202,22 @@ public enum RuleParser {
         warnings: inout [String]
     ) -> String? {
         var line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !line.isEmpty, !isComment(line) else { return nil }
+        guard !line.isEmpty else { return nil }
+        if line.hasPrefix("#!") {
+            // A local Profile import may reference a detached Rule section. Preserve that
+            // explicit user-owned include, while remote sources remain unable to inject
+            // Profile directives into generated output.
+            if source.isEmbedded, line.lowercased().hasPrefix("#!include") {
+                return line
+            }
+            return nil
+        }
+        guard !isComment(line) else { return nil }
         if format == .clashPayload {
             guard !line.lowercased().hasPrefix("payload:") else { return nil }
             line = stripYAMLDecoration(line)
         }
         if line.hasPrefix("[") && line.hasSuffix("]") { return nil }
-        if line.hasPrefix("#!") { return nil }
-
         let comment = splitInlineComment(line)
         var body = comment.body.trimmingCharacters(in: .whitespaces)
         guard !body.isEmpty else { return nil }
@@ -231,7 +239,7 @@ public enum RuleParser {
         }
 
         let fallbackPolicy = source.policy.trimmingCharacters(in: .whitespacesAndNewlines)
-        if source.preservesSourcePolicy {
+        if source.preservesSourcePolicy && format != .surgeRuleset {
             if tokens.count == 2 {
                 guard !fallbackPolicy.isEmpty else {
                     warnings.append("第 \(lineNumber) 行缺少策略且规则源未设置回退策略，已忽略。")
@@ -259,8 +267,30 @@ public enum RuleParser {
             }
         }
 
+        if format == .surgeRuleset {
+            appendRulesetOptions(source.rulesetOptions ?? [], to: &tokens)
+        }
+
         let suffix = comment.suffix.map { " \($0)" } ?? ""
         return tokens.joined(separator: ",") + suffix
+    }
+
+    private static func appendRulesetOptions(
+        _ options: Set<RuleSourceRulesetOption>,
+        to tokens: inout [String]
+    ) {
+        guard let type = tokens.first?.uppercased() else { return }
+        let existing = Set(tokens.map { $0.lowercased() })
+        if options.contains(.noResolve),
+           ["IP-CIDR", "IP-CIDR6", "GEOIP"].contains(type),
+           !existing.contains(RuleSourceRulesetOption.noResolve.rawValue) {
+            tokens.append(RuleSourceRulesetOption.noResolve.rawValue)
+        }
+        if options.contains(.extendedMatching),
+           ["DOMAIN", "DOMAIN-SUFFIX", "DOMAIN-KEYWORD", "DOMAIN-SET"].contains(type),
+           !existing.contains(RuleSourceRulesetOption.extendedMatching.rawValue) {
+            tokens.append(RuleSourceRulesetOption.extendedMatching.rawValue)
+        }
     }
 
     private static func extractClashPayload(from content: String) -> [String] {
@@ -380,9 +410,10 @@ public enum RuleMerger {
                 .replacingOccurrences(of: "\r", with: " ")
                 .replacingOccurrences(of: "\n", with: " ")
                 .trimmingCharacters(in: .whitespaces)
-            output.append("# --- \(safeName) · \(sourceRules.count) 条 ---")
+            let actualRuleCount = sourceRules.filter { !$0.hasPrefix("#!") }.count
+            output.append("# --- \(safeName) · \(actualRuleCount) 条 ---")
             output.append(contentsOf: sourceRules)
-            count += sourceRules.count
+            count += actualRuleCount
             warnings.append(contentsOf: item.parsed.warnings.map { "\(item.source.name)：\($0)" })
         }
 

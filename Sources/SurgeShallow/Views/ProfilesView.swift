@@ -7,6 +7,14 @@ struct ProfilesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
+                PageHeader(
+                    eyebrow: "Profile Architecture",
+                    title: "共享基础，只维护真正的差异",
+                    detail: "通用项写入公共 Detached Profile；macOS 与 iOS 只保存各自覆盖项，规则由 Relay 自动合并。"
+                )
+
+                importBanner
+
                 sharingOverview
 
                 SharedProfileEditor(profile: model.document.sharedProfile)
@@ -31,15 +39,42 @@ struct ProfilesView: View {
         .navigationTitle("Profiles")
     }
 
+    private var importBanner: some View {
+        HStack(spacing: SurgeSpacing.lg) {
+            Image(systemName: "arrow.down.doc.fill")
+                .font(.title2)
+                .foregroundStyle(SurgePalette.accent)
+                .frame(width: 44, height: 44)
+                .background(SurgePalette.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 12))
+            VStack(alignment: .leading, spacing: 3) {
+                Text("从现有 Surge Profile 开始")
+                    .font(.headline)
+                Text("一键识别 General、Proxy、策略组、规则、FINAL 与高级段；预览迁移摘要后再应用。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button {
+                model.beginFullProfileImport()
+            } label: {
+                Label("导入并自动设置", systemImage: "sparkles")
+            }
+            .buttonStyle(.glassProminent)
+            .controlSize(.large)
+        }
+        .padding(SurgeSpacing.lg)
+        .glassEffect()
+    }
+
     private var sharingOverview: some View {
         RelayCard {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 14) {
                     Image(systemName: "square.stack.3d.up")
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(SurgePalette.accent)
                         .frame(width: 42, height: 42)
-                        .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+                        .background(SurgePalette.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 11))
                     VStack(alignment: .leading, spacing: 4) {
                         Text("一份公共配置，两份平台差异")
                             .font(.headline)
@@ -116,9 +151,9 @@ private struct SharedProfileEditor: View {
                 HStack(spacing: 13) {
                     Image(systemName: "square.stack.3d.up.fill")
                         .font(.title2)
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(SurgePalette.accent)
                         .frame(width: 40, height: 40)
-                        .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 10))
+                        .background(SurgePalette.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 10))
                     VStack(alignment: .leading, spacing: 2) {
                         Text("公共配置")
                             .font(.title3.weight(.semibold))
@@ -300,7 +335,7 @@ private struct SharedProfileEditor: View {
                             shared.lastValidationMessage = "General 与其他公共段已保存，等待重新生成。"
                         }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(!isValid)
                 }
             }
@@ -518,7 +553,7 @@ private struct PlatformDifferenceEditor: View {
                     Button("保存平台设置") {
                         model.updateTarget(draft.platform) { $0 = draft }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glassProminent)
                     .disabled(!isValid)
                 }
             }

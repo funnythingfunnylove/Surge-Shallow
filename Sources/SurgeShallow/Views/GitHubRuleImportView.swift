@@ -94,7 +94,7 @@ struct GitHubRuleImportView: View {
                         Label("解析仓库", systemImage: "arrow.triangle.branch")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .disabled(isLoading || repositoryURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
 
@@ -251,7 +251,7 @@ struct GitHubRuleImportView: View {
                 onAdd(makeSources())
                 dismiss()
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
             .keyboardShortcut(.defaultAction)
             .disabled(!canAdd)
         }

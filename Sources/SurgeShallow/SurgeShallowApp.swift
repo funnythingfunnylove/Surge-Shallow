@@ -4,11 +4,17 @@ import SurgeProfileRelayCore
 @main
 struct SurgeShallowApp: App {
     @State private var model = AppModel()
+    @AppStorage(SurgeAppearance.storageKey) private var appearanceRawValue = SurgeAppearance.system.rawValue
+
+    private var appearance: SurgeAppearance {
+        SurgeAppearance(rawValue: appearanceRawValue) ?? .system
+    }
 
     var body: some Scene {
         WindowGroup("Surge Shallow") {
             RootView()
                 .environment(model)
+                .preferredColorScheme(appearance.preferredColorScheme)
                 .frame(minWidth: 980, minHeight: 640)
                 .task { model.start() }
         }
@@ -32,12 +38,14 @@ struct SurgeShallowApp: App {
         MenuBarExtra("Surge Shallow", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
             MenuBarView()
                 .environment(model)
+                .preferredColorScheme(appearance.preferredColorScheme)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
                 .environment(model)
+                .preferredColorScheme(appearance.preferredColorScheme)
                 .frame(width: 620, height: 520)
         }
     }

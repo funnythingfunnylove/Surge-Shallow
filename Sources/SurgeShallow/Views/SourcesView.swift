@@ -19,7 +19,7 @@ struct SourcesView: View {
                     } actions: {
                         HStack {
                             Button("添加规则源", action: addSource)
-                                .buttonStyle(.borderedProminent)
+                                .buttonStyle(.glassProminent)
                             Button("解析 GitHub 规则库") {
                                 showsGitHubImporter = true
                             }
@@ -37,6 +37,7 @@ struct SourcesView: View {
                         }
                     }
                     .listStyle(.inset)
+                    .scrollContentBackground(.hidden)
                 }
             }
             .frame(minWidth: 360, idealWidth: 460)
@@ -176,7 +177,7 @@ private struct SourceDetailView: View {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(source.name)
                             .font(.largeTitle.weight(.semibold))
-                        Text(source.url)
+                        Text(source.isEmbedded ? "由已导入 Profile 内嵌并随 iCloud 管理配置同步" : source.url)
                             .font(.callout.monospaced())
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
@@ -189,6 +190,17 @@ private struct SourceDetailView: View {
                     Grid(alignment: .leading, horizontalSpacing: 34, verticalSpacing: 12) {
                         detailRow("格式", source.format.displayName)
                         detailRow("合并策略", source.preservesSourcePolicy ? "保留上游策略（缺失时用 \(source.policy)）" : "统一改写为 \(source.policy)")
+                        if source.format == .surgeRuleset {
+                            detailRow(
+                                "Ruleset 参数",
+                                (source.rulesetOptions ?? []).isEmpty
+                                    ? "无"
+                                    : (source.rulesetOptions ?? [])
+                                        .map(\.rawValue)
+                                        .sorted()
+                                        .joined(separator: "、")
+                            )
+                        }
                         detailRow("平台", source.platforms.map(\.displayName).sorted().joined(separator: "、"))
                         detailRow("更新频率", source.updateIntervalMinutes == 0 ? "使用全局设置" : "每 \(source.updateIntervalMinutes) 分钟")
                         detailRow("缓存标识", source.etag ?? source.contentHash?.prefix(12).description ?? "尚无")
@@ -215,7 +227,7 @@ private struct SourceDetailView: View {
 
                 HStack {
                     Button("编辑规则源", action: editAction)
-                        .buttonStyle(.borderedProminent)
+                        .buttonStyle(.glassProminent)
                     Button("删除", role: .destructive, action: deleteAction)
                     Spacer()
                     Button("检查全部上游") {
@@ -259,12 +271,12 @@ private struct SourceEditorView: View {
               !policy.isEmpty,
               !policy.contains(","),
               !policy.contains("\n"),
-              !policy.contains("\r"),
-              let components = URLComponents(string: draft.url),
-              let scheme = components.scheme?.lowercased(),
-              ["https", "http"].contains(scheme),
-              components.host != nil else { return false }
-        return !draft.platforms.isEmpty
+              !policy.contains("\r") else { return false }
+        if !draft.isEmbedded {
+            guard RemoteRulesetReference.parse(draft.url) != nil
+                    || RemoteRulesetReference.isRemoteURL(draft.url) else { return false }
+        }
+        return !draft.platforms.isEmpty && (draft.embeddedContent?.isEmpty == false || !draft.isEmbedded)
     }
 
     var body: some View {
@@ -272,8 +284,21 @@ private struct SourceEditorView: View {
             Form {
                 Section("规则源") {
                     TextField("名称", text: $draft.name, prompt: Text("例如：广告拦截"))
-                    TextField("URL", text: $draft.url, prompt: Text("https://example.com/rules.list"))
-                        .textContentType(.URL)
+                    if draft.isEmbedded {
+                        LabeledContent("内容") {
+                            Text("内嵌规则 · \(draft.embeddedContent?.split(separator: "\n").count ?? 0) 行")
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("内嵌内容来自 Profile 迁移，会随 relay.json 同步到其他 Mac；如需替换，请重新执行完整 Profile 导入。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("URL", text: $draft.url, prompt: Text("https://example.com/rules.list"))
+                            .textContentType(.URL)
+                        Text("可直接粘贴远端 URL，或完整的 RULE-SET,URL,策略,no-resolve,extended-matching 指令。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                     Picker("内容格式", selection: $draft.format) {
                         ForEach(RuleSourceFormat.allCases) { format in
                             Text(format.displayName).tag(format)
@@ -287,12 +312,28 @@ private struct SourceEditorView: View {
                         selection: $draft.policy,
                         sharedProfile: model.document.sharedProfile
                     )
-                    Toggle("保留上游规则中的策略", isOn: $draft.preservesSourcePolicy)
-                    Text(draft.preservesSourcePolicy
-                         ? "只有缺少策略的行才会使用上面的目标策略。"
-                         : "每条上游规则的策略都会统一改写，便于集中管理。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if draft.format == .surgeRuleset {
+                        Text("Surge 外部 Ruleset 的每一行不包含策略；Relay 下载、缓存并展开后统一使用上面的目标策略。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(RuleSourceRulesetOption.allCases) { option in
+                            Toggle(isOn: rulesetOptionBinding(option)) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(option.displayName)
+                                    Text(option.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    } else {
+                        Toggle("保留上游规则中的策略", isOn: $draft.preservesSourcePolicy)
+                        Text(draft.preservesSourcePolicy
+                             ? "只有缺少策略的行才会使用上面的目标策略。"
+                             : "每条上游规则的策略都会统一改写，便于集中管理。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Section("适用平台") {
@@ -326,20 +367,31 @@ private struct SourceEditorView: View {
             Divider()
 
             HStack {
-                Text(isValid ? "保存后可立即执行首次检查。" : "请填写有效的 HTTP(S) URL、名称、策略和至少一个平台。")
+                Text(isValid
+                     ? "保存后可立即执行首次检查。"
+                     : (draft.isEmbedded ? "请填写名称、策略并至少选择一个平台。" : "请填写有效的 HTTP(S) URL、名称、策略和至少一个平台。"))
                     .font(.caption)
                     .foregroundStyle(isValid ? Color.secondary : Color.red)
                 Spacer()
                 Button("取消") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button(isNew ? "添加" : "保存") {
+                    if let reference = RemoteRulesetReference.parse(draft.url) {
+                        draft.url = reference.url
+                        draft.policy = reference.policy
+                        draft.format = .surgeRuleset
+                        draft.rulesetOptions = reference.options
+                    }
+                    if draft.format == .surgeRuleset {
+                        draft.preservesSourcePolicy = false
+                    }
                     draft.name = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
                     draft.url = draft.url.trimmingCharacters(in: .whitespacesAndNewlines)
                     draft.policy = draft.policy.trimmingCharacters(in: .whitespacesAndNewlines)
                     onSave(draft)
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.glassProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(!isValid || model.isRefreshing)
             }
@@ -347,5 +399,24 @@ private struct SourceEditorView: View {
         }
         .frame(width: 620, height: 630)
         .navigationTitle(isNew ? "添加规则源" : "编辑规则源")
+        .onChange(of: draft.url) { _, newValue in
+            guard let reference = RemoteRulesetReference.parse(newValue) else { return }
+            draft.url = reference.url
+            draft.policy = reference.policy
+            draft.format = .surgeRuleset
+            draft.preservesSourcePolicy = false
+            draft.rulesetOptions = reference.options
+        }
+    }
+
+    private func rulesetOptionBinding(_ option: RuleSourceRulesetOption) -> Binding<Bool> {
+        Binding(
+            get: { draft.rulesetOptions?.contains(option) == true },
+            set: { enabled in
+                var options = draft.rulesetOptions ?? []
+                if enabled { options.insert(option) } else { options.remove(option) }
+                draft.rulesetOptions = options
+            }
+        )
     }
 }

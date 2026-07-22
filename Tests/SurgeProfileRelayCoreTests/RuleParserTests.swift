@@ -134,4 +134,45 @@ final class RuleParserTests: XCTestCase {
         XCTAssertEqual(ios.duplicateCount, 0)
         XCTAssertTrue(ios.lines.contains("DOMAIN,example.com,DIRECT"))
     }
+
+    func testRemoteRulesetExpandsPolicyAndOfficialOptions() throws {
+        let source = RuleSource(
+            name: "Remote Ruleset",
+            url: "https://example.com/network.ruleset",
+            format: .surgeRuleset,
+            policy: "PROXY",
+            preservesSourcePolicy: true,
+            rulesetOptions: [.noResolve, .extendedMatching]
+        )
+
+        let parsed = try RuleParser.parse(
+            """
+            DOMAIN-SUFFIX,example.com
+            DOMAIN,api.example.com,extended-matching
+            IP-CIDR,192.0.2.0/24
+            GEOIP,CN
+            """,
+            for: source
+        )
+
+        XCTAssertEqual(parsed.detectedFormat, .surgeRuleset)
+        XCTAssertEqual(parsed.rules, [
+            "DOMAIN-SUFFIX,example.com,PROXY,extended-matching",
+            "DOMAIN,api.example.com,PROXY,extended-matching",
+            "IP-CIDR,192.0.2.0/24,PROXY,no-resolve",
+            "GEOIP,CN,PROXY,no-resolve"
+        ])
+    }
+
+    func testCompleteRulesetDirectiveParsesURLPolicyAndKnownOptions() throws {
+        let reference = try XCTUnwrap(RemoteRulesetReference.parse(
+            "RULE-SET,https://rules.example.com/social.list,Social,no-resolve,extended-matching"
+        ))
+
+        XCTAssertEqual(reference.url, "https://rules.example.com/social.list")
+        XCTAssertEqual(reference.policy, "Social")
+        XCTAssertEqual(reference.options, [.noResolve, .extendedMatching])
+        XCTAssertNil(RemoteRulesetReference.parse("RULE-SET,file:///tmp/local.list,PROXY"))
+        XCTAssertNil(RemoteRulesetReference.parse("https://rules.example.com/plain.list"))
+    }
 }

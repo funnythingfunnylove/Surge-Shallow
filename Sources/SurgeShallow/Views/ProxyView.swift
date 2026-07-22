@@ -118,9 +118,9 @@ private struct ProxyConfigurationEditor: View {
         HStack(alignment: .top, spacing: 14) {
             Image(systemName: "point.3.connected.trianglepath.dotted")
                 .font(.title2)
-                .foregroundStyle(.blue)
+                .foregroundStyle(SurgePalette.accent)
                 .frame(width: 42, height: 42)
-                .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 11))
+                .background(SurgePalette.accent.opacity(0.11), in: RoundedRectangle(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 4) {
                 Text("Proxy 与策略组")
                     .font(.title3.weight(.semibold))
@@ -180,6 +180,7 @@ private struct ProxyConfigurationEditor: View {
                 }
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(.hidden)
 
             Divider()
             HStack(spacing: 12) {
@@ -301,7 +302,7 @@ private struct ProxyConfigurationEditor: View {
                     shared.lastValidationMessage = "Proxy 与策略组已保存，等待重新生成。"
                 }
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glassProminent)
             .disabled(validationMessage != nil || !hasChanges)
         }
         .padding(.horizontal, 18)

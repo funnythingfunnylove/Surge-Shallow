@@ -42,6 +42,7 @@ struct HistoryView: View {
                     .padding(.vertical, 7)
                 }
                 .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
         .navigationTitle("更新记录")

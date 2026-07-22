@@ -7,26 +7,32 @@ struct DashboardView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                header
+                PageHeader(
+                    eyebrow: "Surge Shallow",
+                    title: "让每一端始终保持最新",
+                    detail: "集中管理规则、代理与平台差异，通过 iCloud 把生成后的 Profile 安全同步到 Mac、iPhone 与 iPad。"
+                )
+
+                statusHero
 
                 HStack(spacing: 14) {
                     MetricView(
                         title: "启用规则源",
                         value: "\(model.enabledSourceCount)",
                         symbol: "link",
-                        tint: .blue
+                        tint: SurgePalette.accent
                     )
                     MetricView(
                         title: "生成规则",
                         value: "\(model.currentRuleCount)",
                         symbol: "line.3.horizontal.decrease.circle",
-                        tint: .purple
+                        tint: SurgePalette.violet
                     )
                     MetricView(
                         title: "目标设备",
                         value: "\(model.document.targets.filter(\.isEnabled).count)",
                         symbol: "laptopcomputer.and.iphone",
-                        tint: .teal
+                        tint: SurgePalette.success
                     )
                 }
 
@@ -43,7 +49,7 @@ struct DashboardView: View {
                         Text("添加一个或多个规则 URL，然后由 Relay 按顺序合并并同步到 iCloud。")
                     } actions: {
                         Button("添加规则源") { model.selection = .sources }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.glassProminent)
                     }
                     .frame(maxWidth: .infinity, minHeight: 220)
                 }
@@ -54,13 +60,13 @@ struct DashboardView: View {
         .navigationTitle("总览")
     }
 
-    private var header: some View {
+    private var statusHero: some View {
         RelayCard {
             HStack(spacing: 18) {
                 Image(systemName: model.isRefreshing ? "arrow.trianglehead.2.clockwise.rotate.90" : "checkmark.shield")
                     .font(.system(size: 30, weight: .semibold))
                     .symbolEffect(.rotate, isActive: model.isRefreshing)
-                    .foregroundStyle(model.lastResult?.outcome == .failure ? Color.red : Color.accentColor)
+                    .foregroundStyle(model.lastResult?.outcome == .failure ? SurgePalette.danger : SurgePalette.accent)
                     .frame(width: 58, height: 58)
                     .background(.tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 15))
                 VStack(alignment: .leading, spacing: 5) {
@@ -80,22 +86,40 @@ struct DashboardView: View {
                     }
                 }
                 Spacer()
-                Button {
-                    Task { await model.refresh(force: true) }
-                } label: {
-                    Label("立即更新", systemImage: "arrow.clockwise")
+                GlassEffectContainer(spacing: 12) {
+                    HStack(spacing: 12) {
+                        Button {
+                            model.beginFullProfileImport()
+                        } label: {
+                            Label("导入现有 Profile", systemImage: "square.and.arrow.down")
+                        }
+                        .buttonStyle(.glass)
+                        .help("分析现有 Surge Profile 并迁移到结构化管理")
+
+                        Button {
+                            Task { await model.refresh(force: true) }
+                        } label: {
+                            Label("立即更新", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(model.isRefreshing)
+                    }
                 }
-                .buttonStyle(.borderedProminent)
                 .controlSize(.large)
-                .disabled(model.isRefreshing)
             }
         }
     }
 
     private var targets: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("同步目标")
-                .font(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text("同步目标")
+                    .font(.title3.weight(.semibold))
+                Spacer()
+                Text("生成后自动出现在 Surge iCloud 目录")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             ForEach(model.document.targets) { target in
                 RelayCard {
                     HStack(spacing: 14) {

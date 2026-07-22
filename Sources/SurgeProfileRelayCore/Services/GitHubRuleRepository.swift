@@ -259,7 +259,8 @@ public struct GitHubRuleRepositoryClient: GitHubRuleRepositoryDiscovering, Senda
         return switch URL(filePath: fileName).pathExtension.lowercased() {
         case "yaml", "yml": .clashPayload
         case "conf": .surgeProfile
-        case "list", "rule", "rules", "ruleset", "txt": .automatic
+        case "ruleset": .surgeRuleset
+        case "list", "rule", "rules", "txt": .automatic
         default: nil
         }
     }

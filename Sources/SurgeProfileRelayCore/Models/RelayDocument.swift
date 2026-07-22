@@ -66,7 +66,7 @@ public struct UpdateRecord: Identifiable, Codable, Hashable, Sendable {
 }
 
 public struct RelayDocument: Codable, Hashable, Sendable {
-    public static let currentSchemaVersion = 4
+    public static let currentSchemaVersion = 6
 
     public var schemaVersion: Int
     public var sources: [RuleSource]

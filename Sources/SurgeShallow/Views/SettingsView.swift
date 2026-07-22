@@ -3,11 +3,36 @@ import SurgeProfileRelayCore
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @AppStorage(SurgeAppearance.storageKey) private var appearanceRawValue = SurgeAppearance.system.rawValue
+
+    private var appearance: SurgeAppearance {
+        SurgeAppearance(rawValue: appearanceRawValue) ?? .system
+    }
 
     var body: some View {
         @Bindable var model = model
 
         Form {
+            Section("外观") {
+                Picker(
+                    "显示模式",
+                    selection: Binding(
+                        get: { appearance },
+                        set: { appearanceRawValue = $0.rawValue }
+                    )
+                ) {
+                    ForEach(SurgeAppearance.allCases) { mode in
+                        Label(mode.title, systemImage: mode.symbol)
+                            .tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                Label(appearance.detail, systemImage: appearance.symbol)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.opacity)
+            }
+
             Section("iCloud 与输出") {
                 LabeledContent("目录") {
                     Text(model.document.settings.outputDirectory)
@@ -21,7 +46,7 @@ struct SettingsView: View {
                         model.isSurgeICloudAvailable ? "已检测到 Surge iCloud 容器" : "未检测到 Surge iCloud 容器",
                         systemImage: model.isSurgeICloudAvailable ? "icloud.and.arrow.up" : "icloud.slash"
                     )
-                    .foregroundStyle(model.isSurgeICloudAvailable ? .green : .orange)
+                    .foregroundStyle(model.isSurgeICloudAvailable ? SurgePalette.success : SurgePalette.warning)
                     Spacer()
                     Button("使用默认 Surge 目录") { model.useDefaultSurgeICloudDirectory() }
                         .disabled(!model.isSurgeICloudAvailable)
@@ -106,6 +131,7 @@ struct SettingsView: View {
                 Link("打开 Surge 配置文档", destination: URL(string: "https://manual.nssurge.com/overview/configuration.html")!)
             }
         }
+        .scrollContentBackground(.hidden)
         .formStyle(.grouped)
         .disabled(model.isRefreshing)
         .navigationTitle("设置")

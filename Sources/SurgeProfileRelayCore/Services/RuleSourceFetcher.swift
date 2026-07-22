@@ -51,6 +51,22 @@ public struct URLSessionRuleSourceFetcher: RuleSourceFetching, Sendable {
         timeoutSeconds: Int,
         maximumSizeMB: Int
     ) async throws -> RuleSourceFetchResult {
+        if let embeddedContent = source.embeddedContent {
+            let data = Data(embeddedContent.utf8)
+            let limit = max(1, maximumSizeMB) * 1_024 * 1_024
+            guard data.count <= limit else {
+                throw RuleSourceFetchError.sourceTooLarge(maximumSizeMB)
+            }
+            let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+            return .modified(
+                content: embeddedContent,
+                etag: nil,
+                lastModified: nil,
+                contentHash: digest,
+                checkedAt: .now
+            )
+        }
+
         let trimmed = source.url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmed), url.host != nil else {
             throw RuleSourceFetchError.invalidURL
