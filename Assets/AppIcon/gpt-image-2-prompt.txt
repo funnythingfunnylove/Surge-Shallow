@@ -1,0 +1,16 @@
+Model: gpt-image-2
+Requested size: 1024x1024
+Final master size: 1024x1024
+Quality: high
+Output format: PNG
+
+Use case: logo-brand
+Asset type: refined macOS 26 app icon for Surge Shallow
+Primary request: create an exceptionally minimal and sophisticated icon for merging profile configurations and relaying them between devices, expressed as one abstract mark rather than a literal diagram.
+Scene/backdrop: outside the icon plate, one perfectly flat uniform solid #00ff00 chroma-key background only; no shadows, gradients, texture, reflections, floor plane, or lighting variation.
+Subject: one centered rounded-square macOS icon plate in charcoal blue-black. At its center, a single broad folded ribbon forms two offset profile layers, converges through one narrow bridge, then turns back once to suggest a bidirectional relay. The ribbon is one continuous bold shape with no standalone arrows or pictograms.
+Style/medium: restrained Swiss-modern product design, sculptural but nearly flat, exact geometry, matte mineral surface and softly brushed aluminum; understated luxury, sober, distinctive, not playful.
+Composition/framing: one large centered mark, strong silhouette, extensive negative space, symmetrical visual mass, no micro-details, instantly readable at 16x16.
+Color palette: charcoal #161A1F, desaturated ink navy #202B35, warm brushed silver #B8B7B2, and a barely visible steel-blue edge #647789. No saturated colors, no neon, no cyan, no violet, no multicolor glow, no high-chroma gradient.
+Lighting/mood: quiet diffuse light, slight bevel definition, restrained contrast; no glow, bloom, translucency, shiny plastic, or candy-like finish.
+Constraints: exactly one icon; no text, letters, numbers, interface labels, watermark, existing logo, document lines, cloud, computer, phone, nodes, network branches, separate arrows, decorative ornaments, or busy details; do not use green inside the icon; crisp outer edge; no cast shadow outside the plate.

@@ -1,0 +1,4 @@
+# 示例外部规则源：每行可不带策略，Relay 会按规则源设置补齐。
+DOMAIN-SUFFIX,example.com
+DOMAIN,api.example.net
+IP-CIDR,192.0.2.0/24,no-resolve

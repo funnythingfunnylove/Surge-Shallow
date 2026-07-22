@@ -1,0 +1,10 @@
+.build/
+build/
+output/
+tmp/
+Packaging/AppIcon.iconset/
+Packaging/AppIcon.icns
+Assets/AppIcon/*-chroma-source.png
+.DS_Store
+*.xcuserstate
+xcuserdata/
