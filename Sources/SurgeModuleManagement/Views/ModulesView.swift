@@ -600,7 +600,7 @@ private struct CombinedModuleDetailView: View {
                     }
                     .buttonStyle(.borderless)
                     .font(.caption)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.tint)
                 }
             }
         }

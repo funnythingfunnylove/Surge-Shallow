@@ -138,7 +138,9 @@ private struct ProfileFlowStep: View {
 
 private struct SharedProfileEditor: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var draft: SharedProfile
+    @State private var isExpanded = false
     @State private var showsEditor = false
 
     init(profile: SharedProfile) {
@@ -167,180 +169,208 @@ private struct SharedProfileEditor: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    expansionButton(
+                        title: "公共配置",
+                        accessibilityIdentifier: "shared-profile-expansion-toggle"
+                    )
                 }
 
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                    GridRow {
-                        Text("共享文件")
-                            .foregroundStyle(.secondary)
-                        TextField("Surge-Profile-Relay-Shared.dconf", text: $draft.outputFileName)
+                if isExpanded {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                        GridRow {
+                            Text("共享文件")
+                                .foregroundStyle(.secondary)
+                            TextField("Surge-Profile-Relay-Shared.dconf", text: $draft.outputFileName)
+                        }
                     }
-                }
 
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("General 通用选项")
-                                .font(.headline)
-                            Text("这里的值由两个平台共同继承；需要不同值时，再到对应平台 Profile 添加同名覆盖项。")
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("General 通用选项")
+                                    .font(.headline)
+                                Text("这里的值由两个平台共同继承；需要不同值时，再到对应平台 Profile 添加同名覆盖项。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Menu {
+                                ForEach(ProfileOptionCatalog.common) { option in
+                                    Button("\(option.title) · \(option.key)") {
+                                        addGeneralOption(option)
+                                    }
+                                    .disabled(containsGeneralOption(option))
+                                }
+                                Divider()
+                                Button {
+                                    draft.generalOptions.append(ProfileDifferenceItem(
+                                        section: "General",
+                                        key: "",
+                                        value: ""
+                                    ))
+                                } label: {
+                                    Label("自定义 General 键值", systemImage: "text.badge.plus")
+                                }
+                                Button {
+                                    draft.generalOptions.append(.rawLine(section: "General", line: ""))
+                                } label: {
+                                    Label("自定义原始行", systemImage: "chevron.left.forwardslash.chevron.right")
+                                }
+                            } label: {
+                                Label("添加通用选项", systemImage: "plus")
+                            }
+                            .menuStyle(.borderlessButton)
+                        }
+
+                        if draft.generalOptions.isEmpty {
+                            HStack(spacing: 10) {
+                                Image(systemName: "slider.horizontal.3")
+                                    .foregroundStyle(.secondary)
+                                Text("还没有 General 通用选项。")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+                        } else {
+                            ForEach($draft.generalOptions) { $item in
+                                ProfileDifferenceRow(
+                                    item: $item,
+                                    platform: nil,
+                                    locksSection: true,
+                                    onDelete: {
+                                        draft.generalOptions.removeAll { $0.id == item.id }
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    DisclosureGroup(isExpanded: $showsEditor) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("这里只编辑 Host、MITM、Script、Rewrite 等高级公共段。General 请使用上方选项；Proxy 与策略组请使用侧栏 Proxy Tab；[Rule] 由 Relay 自动管理。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Menu {
-                            ForEach(ProfileOptionCatalog.common) { option in
-                                Button("\(option.title) · \(option.key)") {
-                                    addGeneralOption(option)
-                                }
-                                .disabled(containsGeneralOption(option))
-                            }
-                            Divider()
-                            Button {
-                                draft.generalOptions.append(ProfileDifferenceItem(
-                                    section: "General",
-                                    key: "",
-                                    value: ""
-                                ))
-                            } label: {
-                                Label("自定义 General 键值", systemImage: "text.badge.plus")
-                            }
-                            Button {
-                                draft.generalOptions.append(.rawLine(section: "General", line: ""))
-                            } label: {
-                                Label("自定义原始行", systemImage: "chevron.left.forwardslash.chevron.right")
-                            }
-                        } label: {
-                            Label("添加通用选项", systemImage: "plus")
-                        }
-                        .menuStyle(.borderlessButton)
-                    }
 
-                    if draft.generalOptions.isEmpty {
-                        HStack(spacing: 10) {
-                            Image(systemName: "slider.horizontal.3")
+                            Text("可复用高级公共段")
+                                .font(.caption.weight(.semibold))
+                            Text(SharedProfile.reusableSections.map { "[\($0)]" }.joined(separator: "  "))
+                                .font(.system(.caption, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                            Text("还没有 General 通用选项。")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                        }
-                        .padding(14)
-                        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-                    } else {
-                        ForEach($draft.generalOptions) { $item in
-                            ProfileDifferenceRow(
-                                item: $item,
-                                platform: nil,
-                                locksSection: true,
-                                onDelete: {
-                                    draft.generalOptions.removeAll { $0.id == item.id }
+                                .textSelection(.enabled)
+
+                            if !draft.preamble.isEmpty {
+                                VStack(alignment: .leading, spacing: 5) {
+                                    Text("文件头注释与指令")
+                                        .font(.caption.weight(.semibold))
+                                    TextEditor(text: $draft.preamble)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .frame(minHeight: 74)
+                                        .scrollContentBackground(.hidden)
+                                        .padding(7)
+                                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                                 }
-                            )
-                        }
-                    }
-                }
-
-                DisclosureGroup(isExpanded: $showsEditor) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("这里只编辑 Host、MITM、Script、Rewrite 等高级公共段。General 请使用上方选项；Proxy 与策略组请使用侧栏 Proxy Tab；[Rule] 由 Relay 自动管理。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-
-                        Text("可复用高级公共段")
-                            .font(.caption.weight(.semibold))
-                        Text(SharedProfile.reusableSections.map { "[\($0)]" }.joined(separator: "  "))
-                            .font(.system(.caption, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
-
-                        if !draft.preamble.isEmpty {
-                            VStack(alignment: .leading, spacing: 5) {
-                                Text("文件头注释与指令")
-                                    .font(.caption.weight(.semibold))
-                                TextEditor(text: $draft.preamble)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .frame(minHeight: 74)
-                                    .scrollContentBackground(.hidden)
-                                    .padding(7)
-                                    .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
                             }
-                        }
 
-                        ZStack(alignment: .topLeading) {
-                            TextEditor(text: $draft.advancedProfile)
-                                .font(.system(.body, design: .monospaced))
-                                .frame(minHeight: 330)
-                                .scrollContentBackground(.hidden)
-                                .padding(8)
-                            if draft.advancedProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                Text(SharedProfile.editorPlaceholder)
+                            ZStack(alignment: .topLeading) {
+                                TextEditor(text: $draft.advancedProfile)
                                     .font(.system(.body, design: .monospaced))
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.horizontal, 13)
-                                    .padding(.vertical, 16)
-                                    .allowsHitTesting(false)
-                            }
-                        }
-                        .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(.primary.opacity(0.12))
-                        }
-
-                        HStack {
-                            Menu {
-                                ForEach(SharedProfile.reusableSections, id: \.self) { section in
-                                    Button("[\(section)]") { appendSection(section) }
+                                    .frame(minHeight: 330)
+                                    .scrollContentBackground(.hidden)
+                                    .padding(8)
+                                if draft.advancedProfile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text(SharedProfile.editorPlaceholder)
+                                        .font(.system(.body, design: .monospaced))
+                                        .foregroundStyle(.tertiary)
+                                        .padding(.horizontal, 13)
+                                        .padding(.vertical, 16)
+                                        .allowsHitTesting(false)
                                 }
-                            } label: {
-                                Label("插入提示或段模板", systemImage: "text.badge.plus")
                             }
-                            Spacer()
-                            Text("注释以 # 开头，不影响 Surge 解析。")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
+                            .background(Color(nsColor: .textBackgroundColor), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(.primary.opacity(0.12))
+                            }
+
+                            HStack {
+                                Menu {
+                                    ForEach(SharedProfile.reusableSections, id: \.self) { section in
+                                        Button("[\(section)]") { appendSection(section) }
+                                    }
+                                } label: {
+                                    Label("插入提示或段模板", systemImage: "text.badge.plus")
+                                }
+                                Spacer()
+                                Text("注释以 # 开头，不影响 Surge 解析。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
                         }
-                    }
-                    .padding(.top, 10)
-                } label: {
-                    Label("编辑其他公共段", systemImage: "doc.text")
-                }
-
-                if let sharedEditorError {
-                    Label(sharedEditorError, systemImage: "exclamationmark.triangle")
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                }
-
-                if let validation = draft.lastValidationMessage {
-                    ValidationLabel(message: validation)
-                }
-
-                HStack {
-                    Button {
-                        model.importSharedProfile()
+                        .padding(.top, 10)
                     } label: {
-                        Label("导入公共 Profile", systemImage: "square.and.arrow.down")
+                        Label("编辑其他公共段", systemImage: "doc.text")
                     }
-                    Button("查看最近预览") { model.showSharedPreview() }
-                        .accessibilityIdentifier("shared-profile-preview")
-                        .disabled(draft.lastGeneratedAt == nil)
-                    Spacer()
-                    Button("保存 General 与公共配置") {
-                        model.updateSharedProfile { shared in
-                            shared.outputFileName = draft.outputFileName
-                            shared.preamble = draft.preamble
-                            shared.generalOptions = draft.generalOptions
-                            shared.advancedProfile = draft.advancedProfile
-                            shared.lastValidationMessage = "General 与其他公共段已保存，等待重新生成。"
+
+                    if let sharedEditorError {
+                        Label(sharedEditorError, systemImage: "exclamationmark.triangle")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+
+                    if let validation = draft.lastValidationMessage {
+                        ValidationLabel(message: validation)
+                    }
+
+                    HStack {
+                        Button {
+                            model.importSharedProfile()
+                        } label: {
+                            Label("导入公共 Profile", systemImage: "square.and.arrow.down")
                         }
+                        Button("查看最近预览") { model.showSharedPreview() }
+                            .accessibilityIdentifier("shared-profile-preview")
+                            .disabled(draft.lastGeneratedAt == nil)
+                        Spacer()
+                        Button("保存 General 与公共配置") {
+                            model.updateSharedProfile { shared in
+                                shared.outputFileName = draft.outputFileName
+                                shared.preamble = draft.preamble
+                                shared.generalOptions = draft.generalOptions
+                                shared.advancedProfile = draft.advancedProfile
+                                shared.lastValidationMessage = "General 与其他公共段已保存，等待重新生成。"
+                            }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(!isValid)
                     }
-                    .buttonStyle(.glassProminent)
-                    .disabled(!isValid)
                 }
             }
         }
         .disabled(model.isRefreshing)
+    }
+
+    private func expansionButton(
+        title: String,
+        accessibilityIdentifier: String
+    ) -> some View {
+        Button {
+            withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "折叠\(title)" : "展开\(title)")
+        .accessibilityIdentifier(accessibilityIdentifier)
+        .help(isExpanded ? "折叠\(title)" : "展开\(title)")
     }
 
     private var isValid: Bool {
@@ -410,7 +440,9 @@ private struct SharedProfileEditor: View {
 
 private struct PlatformDifferenceEditor: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var draft: TargetProfile
+    @State private var isExpanded = false
 
     init(target: TargetProfile) {
         _draft = State(initialValue: target)
@@ -440,126 +472,150 @@ private struct PlatformDifferenceEditor: View {
                     Spacer()
                     Toggle("启用", isOn: $draft.isEnabled)
                         .toggleStyle(.switch)
+                    expansionButton
                 }
 
-                Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
-                    GridRow {
-                        Text("输出文件")
-                            .foregroundStyle(.secondary)
-                        TextField("文件名", text: $draft.outputFileName)
-                    }
-                    GridRow {
-                        Text("FINAL 策略")
-                            .foregroundStyle(.secondary)
-                        RelayPolicyPicker(
-                            title: "FINAL 策略",
-                            selection: $draft.finalPolicy,
-                            sharedProfile: model.document.sharedProfile
-                        )
-                        .labelsHidden()
-                    }
-                }
-
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack(alignment: .firstTextBaseline) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("差异配置")
-                                .font(.headline)
-                            Text("删除一项即恢复继承公共配置；同名值会在 #!include 公共段之后覆盖。")
-                                .font(.caption)
+                if isExpanded {
+                    Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 12) {
+                        GridRow {
+                            Text("输出文件")
                                 .foregroundStyle(.secondary)
+                            TextField("文件名", text: $draft.outputFileName)
                         }
-                        Spacer()
-                        Menu {
-                            Menu("通用选项（覆盖公共值）") {
-                                ForEach(ProfileOptionCatalog.common) { option in
-                                    Button("\(option.title) · \(option.key)") {
-                                        add(option)
-                                    }
-                                    .disabled(contains(option))
-                                }
-                            }
-                            Menu("\(draft.platform.displayName) 专属选项") {
-                                ForEach(ProfileOptionCatalog.platformOnlyOptions(for: draft.platform)) { option in
-                                    Button("\(option.title) · \(option.key)") {
-                                        add(option)
-                                    }
-                                    .disabled(contains(option))
-                                }
-                            }
-                            Divider()
-                            Button {
-                                draft.platformDifferences.append(ProfileDifferenceItem(
-                                    section: "General",
-                                    key: "",
-                                    value: ""
-                                ))
-                            } label: {
-                                Label("自定义键值", systemImage: "text.badge.plus")
-                            }
-                            Button {
-                                draft.platformDifferences.append(.rawLine(section: "", line: ""))
-                            } label: {
-                                Label("自定义原始行", systemImage: "chevron.left.forwardslash.chevron.right")
-                            }
-                        } label: {
-                            Label("添加差异项", systemImage: "plus")
+                        GridRow {
+                            Text("FINAL 策略")
+                                .foregroundStyle(.secondary)
+                            RelayPolicyPicker(
+                                title: "FINAL 策略",
+                                selection: $draft.finalPolicy,
+                                sharedProfile: model.document.sharedProfile
+                            )
+                            .labelsHidden()
                         }
-                        .menuStyle(.borderlessButton)
                     }
 
-                    if draft.platformDifferences.isEmpty {
-                        HStack(spacing: 10) {
-                            Image(systemName: "arrow.triangle.branch")
-                                .foregroundStyle(.secondary)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("没有平台差异")
-                                    .font(.subheadline.weight(.medium))
-                                Text("\(draft.platform.displayName) 将完整继承公共配置。")
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(alignment: .firstTextBaseline) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("差异配置")
+                                    .font(.headline)
+                                Text("删除一项即恢复继承公共配置；同名值会在 #!include 公共段之后覆盖。")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                        }
-                        .padding(14)
-                        .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
-                    } else {
-                        ForEach($draft.platformDifferences) { $item in
-                            ProfileDifferenceRow(
-                                item: $item,
-                                platform: draft.platform,
-                                locksSection: false,
-                                onDelete: {
-                                    draft.platformDifferences.removeAll { $0.id == item.id }
+                            Menu {
+                                Menu("通用选项（覆盖公共值）") {
+                                    ForEach(ProfileOptionCatalog.common) { option in
+                                        Button("\(option.title) · \(option.key)") {
+                                            add(option)
+                                        }
+                                        .disabled(contains(option))
+                                    }
                                 }
-                            )
+                                Menu("\(draft.platform.displayName) 专属选项") {
+                                    ForEach(ProfileOptionCatalog.platformOnlyOptions(for: draft.platform)) { option in
+                                        Button("\(option.title) · \(option.key)") {
+                                            add(option)
+                                        }
+                                        .disabled(contains(option))
+                                    }
+                                }
+                                Divider()
+                                Button {
+                                    draft.platformDifferences.append(ProfileDifferenceItem(
+                                        section: "General",
+                                        key: "",
+                                        value: ""
+                                    ))
+                                } label: {
+                                    Label("自定义键值", systemImage: "text.badge.plus")
+                                }
+                                Button {
+                                    draft.platformDifferences.append(.rawLine(section: "", line: ""))
+                                } label: {
+                                    Label("自定义原始行", systemImage: "chevron.left.forwardslash.chevron.right")
+                                }
+                            } label: {
+                                Label("添加差异项", systemImage: "plus")
+                            }
+                            .menuStyle(.borderlessButton)
+                        }
+
+                        if draft.platformDifferences.isEmpty {
+                            HStack(spacing: 10) {
+                                Image(systemName: "arrow.triangle.branch")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("没有平台差异")
+                                        .font(.subheadline.weight(.medium))
+                                    Text("\(draft.platform.displayName) 将完整继承公共配置。")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(14)
+                            .background(.quaternary.opacity(0.45), in: RoundedRectangle(cornerRadius: 10))
+                        } else {
+                            ForEach($draft.platformDifferences) { $item in
+                                ProfileDifferenceRow(
+                                    item: $item,
+                                    platform: draft.platform,
+                                    locksSection: false,
+                                    onDelete: {
+                                        draft.platformDifferences.removeAll { $0.id == item.id }
+                                    }
+                                )
+                            }
                         }
                     }
-                }
 
-                if let validation = draft.lastValidationMessage {
-                    ValidationLabel(message: validation)
-                }
+                    if let validation = draft.lastValidationMessage {
+                        ValidationLabel(message: validation)
+                    }
 
-                HStack {
-                    Button {
-                        model.importPlatformProfile(for: draft.platform)
-                    } label: {
-                        Label("导入并转换差异片段", systemImage: "square.and.arrow.down")
+                    HStack {
+                        Button {
+                            model.importPlatformProfile(for: draft.platform)
+                        } label: {
+                            Label("导入并转换差异片段", systemImage: "square.and.arrow.down")
+                        }
+                        Button("查看完整预览") { model.showPreview(for: draft.platform) }
+                            .disabled(draft.lastGeneratedAt == nil)
+                        Spacer()
+                        Button("保存平台设置") {
+                            model.updateTarget(draft.platform) { $0 = draft }
+                        }
+                        .buttonStyle(.glassProminent)
+                        .disabled(!isValid)
                     }
-                    Button("查看完整预览") { model.showPreview(for: draft.platform) }
-                        .disabled(draft.lastGeneratedAt == nil)
-                    Spacer()
-                    Button("保存平台设置") {
-                        model.updateTarget(draft.platform) { $0 = draft }
-                    }
-                    .buttonStyle(.glassProminent)
-                    .disabled(!isValid)
                 }
             }
         }
         .opacity(draft.isEnabled ? 1 : 0.68)
         .disabled(model.isRefreshing)
+    }
+
+    private var expansionButton: some View {
+        Button {
+            withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(isExpanded ? 180 : 0))
+                .frame(width: 44, height: 44)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            isExpanded ? "折叠\(draft.platform.displayName)" : "展开\(draft.platform.displayName)"
+        )
+        .accessibilityIdentifier("\(draft.platform.rawValue)-profile-expansion-toggle")
+        .help(isExpanded ? "折叠\(draft.platform.displayName)" : "展开\(draft.platform.displayName)")
     }
 
     private var isValid: Bool {

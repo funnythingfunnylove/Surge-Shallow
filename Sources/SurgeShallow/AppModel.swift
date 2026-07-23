@@ -40,6 +40,54 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     }
 }
 
+enum SidebarUpdateStatus: Equatable {
+    case refreshing(String)
+    case current
+    case warning
+    case failed
+    case pending
+    case empty
+
+    var title: String {
+        switch self {
+        case .refreshing(let message): message
+        case .current: "规则已是最新"
+        case .warning: "已更新，有提示"
+        case .failed: "规则更新失败"
+        case .pending: "等待更新规则"
+        case .empty: "尚未添加规则源"
+        }
+    }
+
+    static func resolve(
+        isRefreshing: Bool,
+        statusMessage: String,
+        enabledSourceStates: [RuleSourceState],
+        latestOutcome: UpdateRecord.Outcome?,
+        hasSuccessfulUpdate: Bool
+    ) -> Self {
+        if isRefreshing {
+            return .refreshing(statusMessage)
+        }
+        guard !enabledSourceStates.isEmpty else {
+            return .empty
+        }
+        if latestOutcome == .failure || enabledSourceStates.contains(.failed) {
+            return .failed
+        }
+        if latestOutcome == .warning || enabledSourceStates.contains(.staleCache) {
+            return .warning
+        }
+        if latestOutcome == .success, hasSuccessfulUpdate {
+            return .current
+        }
+        if enabledSourceStates.contains(.never) {
+            return .pending
+        }
+        return hasSuccessfulUpdate ? .current : .pending
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -89,6 +137,16 @@ final class AppModel {
 
     var lastSuccessfulUpdate: Date? {
         document.history.first(where: { $0.outcome != .failure })?.date
+    }
+
+    var sidebarUpdateStatus: SidebarUpdateStatus {
+        SidebarUpdateStatus.resolve(
+            isRefreshing: isRefreshing,
+            statusMessage: statusMessage,
+            enabledSourceStates: document.sources.filter(\.isEnabled).map(\.state),
+            latestOutcome: document.history.first?.outcome,
+            hasSuccessfulUpdate: lastSuccessfulUpdate != nil
+        )
     }
 
     var outputDirectoryURL: URL {

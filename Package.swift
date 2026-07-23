@@ -44,6 +44,11 @@ let package = Package(
             name: "SurgeModuleManagementTests",
             dependencies: ["SurgeModuleManagement"],
             path: "Tests/SurgeModuleManagementTests"
+        ),
+        .testTarget(
+            name: "SurgeShallowTests",
+            dependencies: ["SurgeShallow"],
+            path: "Tests/SurgeShallowTests"
         )
     ]
 )

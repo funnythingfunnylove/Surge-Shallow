@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum SurgeAppearance: String, CaseIterable, Identifiable {
@@ -33,11 +34,52 @@ enum SurgeAppearance: String, CaseIterable, Identifiable {
         }
     }
 
-    var preferredColorScheme: ColorScheme? {
+    var applicationAppearance: NSAppearance? {
         switch self {
         case .system: nil
-        case .light: .light
-        case .dark: .dark
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
+    }
+}
+
+/// Applies the selected appearance at the AppKit application level.
+///
+/// SwiftUI does not reliably clear a window's previous explicit color scheme
+/// when `preferredColorScheme` changes from light/dark to `nil`. Assigning
+/// `nil` to `NSApplication.appearance` explicitly releases that override and
+/// lets every window follow the current macOS appearance again.
+@MainActor
+final class ApplicationAppearanceSynchronizer {
+    static let shared = ApplicationAppearanceSynchronizer()
+
+    private let setApplicationAppearance: (NSAppearance?) -> Void
+
+    init(
+        setApplicationAppearance: @escaping (NSAppearance?) -> Void = {
+            NSApplication.shared.appearance = $0
+        }
+    ) {
+        self.setApplicationAppearance = setApplicationAppearance
+    }
+
+    func apply(_ appearance: SurgeAppearance) {
+        setApplicationAppearance(appearance.applicationAppearance)
+    }
+}
+
+private struct ApplicationAppearanceSynchronizationModifier: ViewModifier {
+    let appearance: SurgeAppearance
+
+    func body(content: Content) -> some View {
+        content.task(id: appearance.rawValue) {
+            ApplicationAppearanceSynchronizer.shared.apply(appearance)
+        }
+    }
+}
+
+extension View {
+    func synchronizeApplicationAppearance(_ appearance: SurgeAppearance) -> some View {
+        modifier(ApplicationAppearanceSynchronizationModifier(appearance: appearance))
     }
 }

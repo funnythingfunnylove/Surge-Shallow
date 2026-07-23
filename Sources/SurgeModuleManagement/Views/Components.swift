@@ -115,7 +115,7 @@ struct StatusPill: View {
     private var color: Color {
         switch state {
         case .never: .secondary
-        case .updating: .blue
+        case .updating: .accentColor
         case .current: .green
         case .failed: .red
         }

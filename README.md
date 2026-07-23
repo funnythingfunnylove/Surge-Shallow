@@ -146,7 +146,7 @@ swift test
 
 ## 致谢
 
-特别感谢 [EEliberto/SurgeRelay-macOS](https://github.com/EEliberto/SurgeRelay-macOS) 项目及其作者公开的源码与设计积累。Surge Shallow 2.0 的原生模块管理能力在遵守 Apache License 2.0 的前提下，基于该项目的模块转换、编辑、合并、发布、Web/Ponte 管理与同步实现进行整合和适配；同时保留 Surge Shallow 自己的单一应用生命周期、导航与设置体系。
+特别感谢 [EEliberto/SurgeRelay-macOS](https://github.com/EEliberto/SurgeRelay-macOS) 项目及其作者公开的源码与设计积累。Surge Shallow 2.1 的原生模块管理能力在遵守 Apache License 2.0 的前提下，基于该项目的模块转换、编辑、合并、发布、Web/Ponte 管理与同步实现进行整合和适配；同时保留 Surge Shallow 自己的单一应用生命周期、导航与设置体系。
 
 ## 参考与许可
 

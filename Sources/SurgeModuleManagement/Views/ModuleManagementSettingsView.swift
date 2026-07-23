@@ -86,6 +86,7 @@ struct ModuleManagementSettingsView: View {
     @State private var backStack: [SettingsPane] = []
     @State private var forwardStack: [SettingsPane] = []
     @State private var isHistoryNavigation = false
+    private let initialPane: SettingsPane
 
     private enum ConnectionResult {
         case success(String)
@@ -101,7 +102,7 @@ struct ModuleManagementSettingsView: View {
         }
     }
 
-    private enum SettingsPane: String, CaseIterable, Identifiable {
+    enum SettingsPane: String, CaseIterable, Identifiable {
         case general
         case web
         case ponte
@@ -135,6 +136,11 @@ struct ModuleManagementSettingsView: View {
             case .about: "info.circle"
             }
         }
+    }
+
+    init(initialPane: SettingsPane = .general) {
+        self.initialPane = initialPane
+        _selectedPane = State(initialValue: initialPane)
     }
 
     var body: some View {
@@ -231,9 +237,9 @@ struct ModuleManagementSettingsView: View {
     }
 
     private func resetNavigation() {
-        if selectedPane != .general {
+        if selectedPane != initialPane {
             isHistoryNavigation = true
-            selectedPane = .general
+            selectedPane = initialPane
         }
         backStack.removeAll()
         forwardStack.removeAll()

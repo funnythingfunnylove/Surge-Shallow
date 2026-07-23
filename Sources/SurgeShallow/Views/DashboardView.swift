@@ -26,13 +26,13 @@ struct DashboardView: View {
                         title: "生成规则",
                         value: "\(model.currentRuleCount)",
                         symbol: "line.3.horizontal.decrease.circle",
-                        tint: SurgePalette.violet
+                        tint: SurgePalette.accent
                     )
                     MetricView(
                         title: "目标设备",
                         value: "\(model.document.targets.filter(\.isEnabled).count)",
                         symbol: "laptopcomputer.and.iphone",
-                        tint: SurgePalette.success
+                        tint: SurgePalette.accent
                     )
                 }
 

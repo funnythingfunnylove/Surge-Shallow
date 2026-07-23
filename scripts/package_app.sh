@@ -16,6 +16,15 @@ mkdir -p "$MACOS" "$RESOURCES"
 install -m 755 "$ROOT/.build/release/SurgeShallow" "$MACOS/SurgeShallow"
 install -m 644 "$ROOT/Packaging/Info.plist" "$CONTENTS/Info.plist"
 install -m 644 "$ROOT/Packaging/AppIcon.icns" "$RESOURCES/AppIcon.icns"
+xcrun actool "$ROOT/Packaging/Assets.xcassets" \
+    --compile "$RESOURCES" \
+    --platform macosx \
+    --minimum-deployment-target 26.0 \
+    --target-device mac \
+    --output-format human-readable-text \
+    --notices \
+    --warnings
+test -f "$RESOURCES/Assets.car"
 
 MODULE_RESOURCE_BUNDLE="$ROOT/.build/release/SurgeShallow_SurgeModuleManagement.bundle"
 if [[ -d "$MODULE_RESOURCE_BUNDLE" ]]; then

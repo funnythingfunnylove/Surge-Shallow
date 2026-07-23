@@ -2,6 +2,8 @@ import SwiftUI
 import SurgeProfileRelayCore
 
 enum SurgePalette {
+    // Keep these light/dark components aligned with Packaging/Assets.xcassets/AccentColor.
+    // The SwiftUI views use this value while AppKit controls resolve the packaged asset.
     static let accent = adaptive(
         light: NSColor(srgbRed: 0.22, green: 0.40, blue: 0.46, alpha: 1),
         dark: NSColor(srgbRed: 0.48, green: 0.70, blue: 0.73, alpha: 1)
@@ -21,10 +23,6 @@ enum SurgePalette {
     static let danger = adaptive(
         light: NSColor(srgbRed: 0.66, green: 0.31, blue: 0.30, alpha: 1),
         dark: NSColor(srgbRed: 0.84, green: 0.47, blue: 0.46, alpha: 1)
-    )
-    static let violet = adaptive(
-        light: NSColor(srgbRed: 0.43, green: 0.39, blue: 0.56, alpha: 1),
-        dark: NSColor(srgbRed: 0.64, green: 0.59, blue: 0.76, alpha: 1)
     )
     static let surface = Color(nsColor: .controlBackgroundColor)
     static let elevatedSurface = Color(nsColor: .textBackgroundColor)
@@ -61,7 +59,7 @@ struct SurgeBackground: View {
                 colors: [
                     SurgePalette.accent.opacity(colorScheme == .dark ? 0.10 : 0.055),
                     .clear,
-                    SurgePalette.violet.opacity(colorScheme == .dark ? 0.055 : 0.025)
+                    SurgePalette.accentSoft.opacity(colorScheme == .dark ? 0.055 : 0.025)
                 ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -183,6 +181,7 @@ struct MetricView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(value)
                         .font(.title2.weight(.semibold))
+                        .foregroundStyle(tint)
                         .contentTransition(.numericText())
                     Text(title)
                         .font(.caption)
@@ -191,6 +190,20 @@ struct MetricView: View {
                 Spacer(minLength: 0)
             }
         }
+    }
+}
+
+private struct SurgeThemeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .accentColor(SurgePalette.accent)
+            .tint(SurgePalette.accent)
+    }
+}
+
+extension View {
+    func surgeTheme() -> some View {
+        modifier(SurgeThemeModifier())
     }
 }
 

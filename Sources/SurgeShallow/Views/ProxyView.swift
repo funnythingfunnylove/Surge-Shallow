@@ -101,10 +101,10 @@ private struct ProxyConfigurationEditor: View {
 
             HSplitView {
                 sidebar
-                    .frame(minWidth: 300, idealWidth: 330, maxWidth: 390)
+                    .frame(minWidth: 240, idealWidth: 300, maxWidth: 360)
 
                 detailPane
-                    .frame(minWidth: 540, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
             }
 
             Divider()
@@ -493,7 +493,7 @@ private struct PolicyListRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: item.kind == .rawLine ? "chevron.left.forwardslash.chevron.right" : kind.symbol)
-                .foregroundStyle(item.isValid ? Color.accentColor : Color.red)
+                .foregroundStyle(item.isValid ? SurgePalette.accent : SurgePalette.danger)
                 .frame(width: 20)
             VStack(alignment: .leading, spacing: 2) {
                 Text(displayName)

@@ -12,6 +12,15 @@ public final class ModuleManagementController {
         model = ModuleManagementModel()
     }
 
+    /// Read-only counts used by the host application's status surfaces.
+    public var enabledModuleCount: Int {
+        model.modules.filter(\.isEnabled).count
+    }
+
+    public var moduleCount: Int {
+        model.modules.count
+    }
+
     /// Starts an already configured feature from Surge Shallow's app runtime.
     public func startConfiguredRuntime() async {
         await model.startIfConfigured()
@@ -133,20 +142,23 @@ private struct IntegratedModuleRoot: View {
     }
 }
 
-/// Module-specific settings live under Surge Shallow's existing Settings page.
+/// Module settings embedded in Surge Shallow's existing Settings page.
+/// Common options are available directly in the parent form; specialized
+/// Web, Ponte, Script Hub, synchronization, and diagnostics options stay in
+/// the advanced workspace.
 public struct ModuleManagementSettingsSection: View {
     private let controller: ModuleManagementController
-    @State private var showsSettings = false
+    @State private var showsAdvancedSettings = false
 
     public init(controller: ModuleManagementController) {
         self.controller = controller
     }
 
     public var body: some View {
-        ModuleSettingsSectionContent(showsSettings: $showsSettings)
+        ModuleSettingsSectionContent(showsAdvancedSettings: $showsAdvancedSettings)
             .environment(controller.model)
-            .sheet(isPresented: $showsSettings) {
-                ModuleManagementSettingsView()
+            .sheet(isPresented: $showsAdvancedSettings) {
+                ModuleManagementSettingsView(initialPane: .web)
                     .environment(controller.model)
                     .frame(minWidth: 820, minHeight: 620)
             }
@@ -155,7 +167,7 @@ public struct ModuleManagementSettingsSection: View {
 
 private struct ModuleSettingsSectionContent: View {
     @Environment(ModuleManagementModel.self) private var model
-    @Binding var showsSettings: Bool
+    @Binding var showsAdvancedSettings: Bool
 
     var body: some View {
         Section("模块管理") {
@@ -163,21 +175,76 @@ private struct ModuleSettingsSectionContent: View {
                 "来源模块",
                 value: "\(model.modules.filter(\.isEnabled).count) / \(model.modules.count) 已启用"
             )
-            LabeledContent(
-                "发布方式",
-                value: model.settings.storageMode == .local ? "Surge iCloud" : "GitHub"
-            )
-            HStack {
-                Text(model.statusMessage)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Spacer()
-                Button("模块设置…") { showsSettings = true }
+
+            LabeledContent("配置与同步目录") {
+                HStack(spacing: 8) {
+                    Text("iCloud/Surge/Surge Relay")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                    Button {
+                        model.openConfigurationDirectory()
+                    } label: {
+                        Label("在 Finder 中显示", systemImage: "folder")
+                            .labelStyle(.iconOnly)
+                    }
+                    .help("在 Finder 中显示模块配置目录")
+                }
             }
-            Text("模块转换、参数覆盖、按平台排序与 .sgmodule 发布由此 App 的模块管理功能统一维护。")
+
+            Picker(
+                "模块检查频率",
+                selection: Binding(
+                    get: { model.settings.refreshIntervalMinutes },
+                    set: {
+                        model.settings.refreshIntervalMinutes = $0
+                        model.saveSettings()
+                        model.restartScheduler()
+                    }
+                )
+            ) {
+                Text("手动").tag(0)
+                Text("每 15 分钟").tag(15)
+                Text("每小时").tag(60)
+                Text("每 6 小时").tag(360)
+                Text("每 12 小时").tag(720)
+            }
+
+            Toggle(
+                "自动同步模块",
+                isOn: Binding(
+                    get: { model.settings.automaticallyPublish },
+                    set: {
+                        model.settings.automaticallyPublish = $0
+                        model.saveSettings()
+                    }
+                )
+            )
+
+            ForEach(RelayPlatform.allCases) { platform in
+                Toggle(
+                    "生成模块汇总（\(platform.summaryDisplayName)）",
+                    isOn: Binding(
+                        get: { model.settings.platformSettings[platform.rawValue]?.isEnabled ?? false },
+                        set: { model.setPlatformEnabled(platform: platform, isEnabled: $0) }
+                    )
+                )
+            }
+
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("高级模块设置")
+                    Text("Web 管理、Surge Ponte、Script Hub、同步与诊断")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button("打开…") { showsAdvancedSettings = true }
+            }
+
+            Text(model.statusMessage)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
     }
 }

@@ -15,7 +15,8 @@ struct SurgeShallowApp: App {
         WindowGroup("Surge Shallow") {
             RootView()
                 .environment(model)
-                .preferredColorScheme(appearance.preferredColorScheme)
+                .surgeTheme()
+                .synchronizeApplicationAppearance(appearance)
                 .frame(minWidth: 980, minHeight: 640)
                 .task { model.start() }
         }
@@ -39,14 +40,16 @@ struct SurgeShallowApp: App {
         MenuBarExtra("Surge Shallow", systemImage: "arrow.trianglehead.2.clockwise.rotate.90") {
             MenuBarView()
                 .environment(model)
-                .preferredColorScheme(appearance.preferredColorScheme)
+                .surgeTheme()
+                .synchronizeApplicationAppearance(appearance)
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
                 .environment(model)
-                .preferredColorScheme(appearance.preferredColorScheme)
+                .surgeTheme()
+                .synchronizeApplicationAppearance(appearance)
                 .frame(width: 620, height: 520)
         }
     }
