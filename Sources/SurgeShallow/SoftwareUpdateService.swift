@@ -149,6 +149,14 @@ final class SoftwareUpdateController {
         phase = .available
     }
 
+    func prepareForRestart() {
+        // The release drives RootView's SwiftUI sheet. Clear it before the
+        // application asks AppKit to terminate; AppKit refuses to quit while
+        // a modal sheet is still attached to a window.
+        presentedRelease = nil
+        phase = .restarting
+    }
+
     func install(
         _ release: SoftwareRelease,
         currentApplicationURL: URL,
@@ -166,7 +174,7 @@ final class SoftwareUpdateController {
                 currentApplicationURL: currentApplicationURL,
                 processIdentifier: processIdentifier
             )
-            phase = .restarting
+            prepareForRestart()
         } catch {
             phase = .failed(error.localizedDescription)
             throw error

@@ -257,9 +257,30 @@ final class AppModel {
                 currentApplicationURL: Bundle.main.bundleURL,
                 processIdentifier: ProcessInfo.processInfo.processIdentifier
             )
+            await waitForAttachedSheetsToCloseBeforeRestart()
             NSApp.terminate(nil)
         } catch {
             presentedError = "更新安装失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func waitForAttachedSheetsToCloseBeforeRestart() async {
+        for _ in 0..<40 {
+            guard NSApp.windows.contains(where: { $0.attachedSheet != nil }) else { return }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        // SwiftUI normally detaches the sheet as soon as presentedRelease is
+        // cleared. End any lagging sheet explicitly so the updater cannot be
+        // stranded at “即将重新启动” by AppKit's modal-sheet quit guard.
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet {
+                window.endSheet(sheet)
+            }
+        }
+        for _ in 0..<10 {
+            guard NSApp.windows.contains(where: { $0.attachedSheet != nil }) else { return }
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

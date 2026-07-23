@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 
@@ -70,6 +71,125 @@ final class SoftwareUpdateTests: XCTestCase {
         )
     }
 
+    @MainActor
+    func testPreparingToRestartDismissesPresentedReleaseBeforeRestarting() async throws {
+        let fixtureRoot = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: fixtureRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: fixtureRoot) }
+
+        let stagedApplicationURL = fixtureRoot
+            .appending(path: "Staged", directoryHint: .isDirectory)
+            .appending(path: "Surge Shallow.app", directoryHint: .isDirectory)
+        try makeApplicationFixture(at: stagedApplicationURL, version: "2.2.0")
+        try runFixtureTool(
+            "/usr/bin/codesign",
+            arguments: ["--force", "--deep", "--sign", "-", stagedApplicationURL.path]
+        )
+
+        let archiveURL = fixtureRoot.appending(path: "Surge-Shallow-2.2.0-macOS.zip")
+        try runFixtureTool(
+            "/usr/bin/ditto",
+            arguments: ["-c", "-k", "--keepParent", stagedApplicationURL.path, archiveURL.path]
+        )
+        let archiveData = try Data(contentsOf: archiveURL)
+        let archiveDigest = SHA256.hash(data: archiveData)
+            .map { String(format: "%02x", $0) }
+            .joined()
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SoftwareUpdateURLProtocol.self]
+        let session = URLSession(configuration: configuration)
+        let applicationSupportURL = fixtureRoot
+            .appending(path: "Application Support", directoryHint: .isDirectory)
+        let temporaryDirectoryURL = fixtureRoot
+            .appending(path: "Installer Temporary", directoryHint: .isDirectory)
+        let updateFileManager = SoftwareUpdateTestFileManager(
+            applicationSupportURL: applicationSupportURL,
+            temporaryDirectoryURL: temporaryDirectoryURL
+        )
+        let installer = SoftwareUpdateInstaller(
+            session: session,
+            fileManager: updateFileManager,
+            helperScript: isolatedInstallationHandoffHelper,
+            directInstallationOverride: true
+        )
+        let defaultsSuiteName = UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuiteName))
+        defer { defaults.removePersistentDomain(forName: defaultsSuiteName) }
+        let controller = SoftwareUpdateController(defaults: defaults, installer: installer)
+        let downloadURL = URL(
+            string: "https://github.com/funnythingfunnylove/Surge-Shallow/releases/"
+                + "download/v2.2.0/Surge-Shallow-2.2.0-macOS.zip"
+        )!
+        SoftwareUpdateURLProtocol.register(archiveData, for: downloadURL)
+        defer { SoftwareUpdateURLProtocol.unregister(downloadURL) }
+        let release = SoftwareRelease(
+            tagName: "v2.2.0",
+            version: try XCTUnwrap(SemanticVersion("2.2.0")),
+            title: "Surge Shallow 2.2.0",
+            notes: "更新日志",
+            pageURL: URL(string: "https://github.com/funnythingfunnylove/Surge-Shallow/releases/tag/v2.2.0")!,
+            publishedAt: nil,
+            asset: SoftwareUpdateAsset(
+                name: archiveURL.lastPathComponent,
+                downloadURL: downloadURL,
+                sha256: archiveDigest,
+                size: Int64(archiveData.count)
+            )
+        )
+
+        let currentApplicationURL = fixtureRoot
+            .appending(path: "Installed", directoryHint: .isDirectory)
+            .appending(path: "Surge Shallow.app", directoryHint: .isDirectory)
+        try makeApplicationFixture(at: currentApplicationURL, version: "2.1.0")
+        let currentExecutableURL = currentApplicationURL
+            .appending(path: "Contents/MacOS/SurgeShallow")
+        try FileManager.default.createDirectory(
+            at: currentExecutableURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(
+            at: URL(filePath: "/usr/bin/caffeinate"),
+            to: currentExecutableURL
+        )
+        guard FileManager.default.isWritableFile(
+            atPath: currentApplicationURL.deletingLastPathComponent().path
+        ), FileManager.default.isWritableFile(atPath: currentApplicationURL.path) else {
+            return XCTFail("更新回归测试必须走临时目录的 direct-install 分支，禁止请求管理员授权。")
+        }
+        let runningApplication = Process()
+        runningApplication.executableURL = currentExecutableURL
+        try runningApplication.run()
+        defer {
+            if runningApplication.isRunning {
+                runningApplication.terminate()
+                runningApplication.waitUntilExit()
+            }
+        }
+
+        controller.presentForVerification(release)
+        try await controller.install(
+            release,
+            currentApplicationURL: currentApplicationURL,
+            processIdentifier: runningApplication.processIdentifier
+        )
+
+        XCTAssertEqual(controller.phase, .restarting)
+        XCTAssertNil(
+            controller.presentedRelease,
+            "准备重启时必须先关闭更新日志，再进入 restarting 状态"
+        )
+
+        runningApplication.terminate()
+        runningApplication.waitUntilExit()
+        try await waitForInstallerResult(
+            "test-helper-complete",
+            applicationSupportURL: applicationSupportURL
+        )
+        try await waitForNoInstallerProcess(containing: fixtureRoot.path)
+    }
+
     func testSemanticVersionOrdersGitHubTagsAndTreatsMissingPatchAsZero() throws {
         let current = try XCTUnwrap(SemanticVersion("2.1.0"))
         let newer = try XCTUnwrap(SemanticVersion("v2.2.0"))
@@ -106,9 +226,11 @@ final class SoftwareUpdateTests: XCTestCase {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SoftwareUpdateURLProtocol.self]
         let session = URLSession(configuration: configuration)
-        SoftwareUpdateURLProtocol.payload = try githubReleasePayload(
+        let endpoint = GitHubSoftwareUpdateService.latestReleaseURL
+        SoftwareUpdateURLProtocol.register(try githubReleasePayload(
             sha256: String(repeating: "c", count: 64)
-        )
+        ), for: endpoint)
+        defer { SoftwareUpdateURLProtocol.unregister(endpoint) }
 
         let result = try await GitHubSoftwareUpdateService(session: session).check(
             installedVersion: SemanticVersion("2.1.0")!
@@ -119,11 +241,12 @@ final class SoftwareUpdateTests: XCTestCase {
         }
         XCTAssertEqual(release.version, SemanticVersion("2.2.0"))
         XCTAssertEqual(
-            SoftwareUpdateURLProtocol.lastRequest?.url?.absoluteString,
+            SoftwareUpdateURLProtocol.lastRequest(for: endpoint)?.url?.absoluteString,
             "https://api.github.com/repos/funnythingfunnylove/Surge-Shallow/releases/latest"
         )
         XCTAssertEqual(
-            SoftwareUpdateURLProtocol.lastRequest?.value(forHTTPHeaderField: "Accept"),
+            SoftwareUpdateURLProtocol.lastRequest(for: endpoint)?
+                .value(forHTTPHeaderField: "Accept"),
             "application/vnd.github+json"
         )
     }
@@ -249,23 +372,180 @@ final class SoftwareUpdateTests: XCTestCase {
     }
 }
 
+private final class SoftwareUpdateTestFileManager: FileManager, @unchecked Sendable {
+    private let applicationSupportURL: URL
+    private let isolatedTemporaryDirectoryURL: URL
+
+    init(applicationSupportURL: URL, temporaryDirectoryURL: URL) {
+        self.applicationSupportURL = applicationSupportURL
+        isolatedTemporaryDirectoryURL = temporaryDirectoryURL
+        super.init()
+    }
+
+    override var temporaryDirectory: URL { isolatedTemporaryDirectoryURL }
+
+    override func url(
+        for directory: FileManager.SearchPathDirectory,
+        in domain: FileManager.SearchPathDomainMask,
+        appropriateFor url: URL?,
+        create shouldCreate: Bool
+    ) throws -> URL {
+        if directory == .applicationSupportDirectory, domain == .userDomainMask {
+            if shouldCreate {
+                try createDirectory(at: applicationSupportURL, withIntermediateDirectories: true)
+            }
+            return applicationSupportURL
+        }
+        return try super.url(
+            for: directory,
+            in: domain,
+            appropriateFor: url,
+            create: shouldCreate
+        )
+    }
+}
+
+private let isolatedInstallationHandoffHelper = #"""
+#!/bin/sh
+set -eu
+
+app_pid="$3"
+ready_file="$4"
+result_file="$5"
+working_directory=$(/usr/bin/dirname "$ready_file")
+
+/usr/bin/touch "$ready_file"
+while /bin/kill -0 "$app_pid" 2>/dev/null; do
+    /bin/sleep 0.02
+done
+/bin/rm -rf "$working_directory"
+/usr/bin/printf 'test-helper-complete\nisolated\n' > "$result_file"
+"""#
+
+private func makeApplicationFixture(at applicationURL: URL, version: String) throws {
+    let contentsURL = applicationURL.appending(path: "Contents", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: contentsURL, withIntermediateDirectories: true)
+    let plist: [String: Any] = [
+        "CFBundleIdentifier": "com.surgeprofilerelay.app",
+        "CFBundleName": "Surge Shallow",
+        "CFBundlePackageType": "APPL",
+        "CFBundleShortVersionString": version,
+        "CFBundleVersion": "1"
+    ]
+    let plistData = try PropertyListSerialization.data(
+        fromPropertyList: plist,
+        format: .xml,
+        options: 0
+    )
+    try plistData.write(to: contentsURL.appending(path: "Info.plist"))
+}
+
+private func runFixtureTool(_ executable: String, arguments: [String]) throws {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(filePath: executable)
+    process.arguments = arguments
+    process.standardOutput = output
+    process.standardError = output
+    try process.run()
+    process.waitUntilExit()
+    guard process.terminationStatus == 0 else {
+        let details = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        ) ?? ""
+        throw NSError(
+            domain: "SoftwareUpdateFixture",
+            code: Int(process.terminationStatus),
+            userInfo: [NSLocalizedDescriptionKey: details]
+        )
+    }
+}
+
+private func waitForInstallerResult(
+    _ expectedStatus: String,
+    applicationSupportURL: URL
+) async throws {
+    let resultURL = try SoftwareUpdateInstallationResultStore.resultURL(
+        applicationSupportURL: applicationSupportURL
+    )
+    for _ in 0..<100 {
+        if let content = try? String(contentsOf: resultURL, encoding: .utf8),
+           content.hasPrefix(expectedStatus + "\n") {
+            return
+        }
+        try await Task.sleep(for: .milliseconds(100))
+    }
+    XCTFail("安装 helper 未写入预期结果：\(expectedStatus)")
+}
+
+private func waitForNoInstallerProcess(containing fixturePath: String) async throws {
+    for _ in 0..<100 {
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = URL(filePath: "/bin/ps")
+        process.arguments = ["-axo", "command="]
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        let outputData = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let commands = String(data: outputData, encoding: .utf8) ?? ""
+        if !commands.contains(fixturePath) { return }
+        try await Task.sleep(for: .milliseconds(50))
+    }
+    XCTFail("安装 helper 在测试完成后仍未退出。")
+}
+
 private final class SoftwareUpdateURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var payload = Data()
-    nonisolated(unsafe) static var lastRequest: URLRequest?
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var payloads: [URL: Data] = [:]
+    nonisolated(unsafe) private static var requests: [URL: URLRequest] = [:]
+
+    static func register(_ payload: Data, for url: URL) {
+        lock.lock()
+        payloads[url] = payload
+        requests[url] = nil
+        lock.unlock()
+    }
+
+    static func unregister(_ url: URL) {
+        lock.lock()
+        payloads[url] = nil
+        requests[url] = nil
+        lock.unlock()
+    }
+
+    static func lastRequest(for url: URL) -> URLRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requests[url]
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
 
     override func startLoading() {
-        Self.lastRequest = request
+        guard let url = request.url else {
+            client?.urlProtocol(self, didFailWithError: URLError(.badURL))
+            return
+        }
+        Self.lock.lock()
+        Self.requests[url] = request
+        let payload = Self.payloads[url]
+        Self.lock.unlock()
+        guard let payload else {
+            client?.urlProtocol(self, didFailWithError: URLError(.resourceUnavailable))
+            return
+        }
         let response = HTTPURLResponse(
-            url: request.url!,
+            url: url,
             statusCode: 200,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"]
         )!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.payload)
+        client?.urlProtocol(self, didLoad: payload)
         client?.urlProtocolDidFinishLoading(self)
     }
 
