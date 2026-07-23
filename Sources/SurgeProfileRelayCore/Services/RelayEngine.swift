@@ -102,6 +102,7 @@ public actor RelayEngine {
     ) async -> RelayRefreshResult {
         var document = input
         let enabledSources = document.sources.filter(\.isEnabled)
+        let inlineSources = enabledSources.filter { $0.resolvedOutputMode == .inlineMerged }
         await progress?(RelayProgress(fraction: 0.02, message: "正在准备规则源…"))
 
         let sharedIssues = document.sharedProfile.configurationIssues
@@ -114,11 +115,25 @@ public actor RelayEngine {
             )
         }
 
+        let invalidReferences = enabledSources.compactMap { source -> String? in
+            guard source.resolvedOutputMode == .remoteReference,
+                  source.remoteRulesetDirective == nil else { return nil }
+            return "\(source.name)：外部引用需要 HTTP(S) Surge Ruleset URL、有效策略和兼容格式"
+        }
+        guard invalidReferences.isEmpty else {
+            return failureResult(
+                document: document,
+                title: "规则源配置无效，未生成 Profile",
+                details: invalidReferences.joined(separator: "\n"),
+                warnings: []
+            )
+        }
+
         let fetcher = self.fetcher
         let settings = document.settings
         var materials: [UUID: SourceMaterial] = [:]
         await withTaskGroup(of: SourceMaterial.self) { group in
-            for source in enabledSources {
+            for source in inlineSources {
                 group.addTask {
                     await Self.loadMaterial(
                         for: source,
@@ -133,7 +148,7 @@ public actor RelayEngine {
             for await material in group {
                 materials[material.sourceID] = material
                 completed += 1
-                let denominator = max(1, enabledSources.count)
+                let denominator = max(1, inlineSources.count)
                 let fraction = 0.05 + (Double(completed) / Double(denominator)) * 0.5
                 await progress?(RelayProgress(fraction: fraction, message: material.progressMessage))
             }
@@ -141,6 +156,11 @@ public actor RelayEngine {
 
         var sourceWarnings: [String] = []
         for index in document.sources.indices where document.sources[index].isEnabled {
+            if document.sources[index].resolvedOutputMode == .remoteReference {
+                document.sources[index].lastRuleCount = 0
+                document.sources[index].lastError = nil
+                continue
+            }
             guard let material = materials[document.sources[index].id] else { continue }
             document.sources[index].state = material.state
             document.sources[index].lastError = material.errorMessage
@@ -157,7 +177,7 @@ public actor RelayEngine {
             sourceWarnings.append(contentsOf: material.warnings)
         }
 
-        let unusable = enabledSources.compactMap { source -> String? in
+        let unusable = inlineSources.compactMap { source -> String? in
             guard materials[source.id]?.parsed == nil else { return nil }
             let reason = materials[source.id]?.errorMessage ?? "没有可用内容或缓存"
             return "\(source.name)：\(reason)"
@@ -179,7 +199,7 @@ public actor RelayEngine {
             )
         }
 
-        await progress?(RelayProgress(fraction: 0.6, message: "正在合并与去重…"))
+        await progress?(RelayProgress(fraction: 0.6, message: "正在组装规则…"))
         let enabledTargets = document.targets.filter(\.isEnabled)
         let targetNames = enabledTargets.map {
             TargetProfile.sanitizedFileName($0.outputFileName, platform: $0.platform).lowercased()
@@ -200,13 +220,12 @@ public actor RelayEngine {
 
         var mergedByPlatform: [RelayPlatform: MergedRules] = [:]
         for target in enabledTargets {
-            let parsed = document.sources.compactMap { source -> (source: RuleSource, parsed: ParsedRuleSource)? in
+            let sources = document.sources.compactMap { source -> (source: RuleSource, parsed: ParsedRuleSource?)? in
                 guard source.isEnabled,
-                      source.platforms.contains(target.platform),
-                      let value = materials[source.id]?.parsed else { return nil }
-                return (source, value)
+                      source.platforms.contains(target.platform) else { return nil }
+                return (source, materials[source.id]?.parsed)
             }
-            mergedByPlatform[target.platform] = RuleMerger.merge(parsed, for: target.platform)
+            mergedByPlatform[target.platform] = RuleMerger.merge(sources, for: target.platform)
         }
 
         let sharedRuleConfiguration: (rules: MergedRules, finalPolicy: String)? = {

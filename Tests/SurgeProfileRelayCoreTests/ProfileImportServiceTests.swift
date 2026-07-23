@@ -97,11 +97,16 @@ final class ProfileImportServiceTests: XCTestCase {
         XCTAssertEqual(firstRuleset.policy, "Proxy")
         XCTAssertEqual(firstRuleset.rulesetOptions, [.noResolve])
         XCTAssertFalse(firstRuleset.preservesSourcePolicy)
+        XCTAssertEqual(firstRuleset.outputMode, .remoteReference)
 
         let secondRuleset = applied.sources[3]
         XCTAssertEqual(secondRuleset.url, "https://rules.example.com/set/b.list")
         XCTAssertEqual(secondRuleset.policy, "DIRECT")
         XCTAssertEqual(secondRuleset.rulesetOptions, [.extendedMatching])
+        XCTAssertEqual(secondRuleset.outputMode, .remoteReference)
+        XCTAssertEqual(applied.sources[0].outputMode, .inlineMerged)
+        XCTAssertEqual(applied.sources[2].outputMode, .inlineMerged)
+        XCTAssertEqual(applied.sources[4].outputMode, .inlineMerged)
         XCTAssertTrue(applied.sources[4].embeddedContent?.contains("RULE-SET,LAN,DIRECT") == true)
         XCTAssertFalse(draft.importedRules.contains("https://rules.example.com"))
     }

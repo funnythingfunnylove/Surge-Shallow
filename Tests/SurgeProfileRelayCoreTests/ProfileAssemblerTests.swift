@@ -156,6 +156,78 @@ final class ProfileAssemblerTests: XCTestCase {
         }
     }
 
+    func testCompactRulesetProfilesPassInstalledSurgeCLIAndStaySmallerThanInlineOutput() async throws {
+        guard SurgeCLIValidator.executableURL != nil else {
+            throw XCTSkip("Surge CLI is not installed")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "SurgeProfileRelayCompactCheck-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+
+        let base = """
+        [General]
+        loglevel = notify
+        [Proxy]
+        [Proxy Group]
+        PROXY = select, DIRECT
+        [Rule]
+        FINAL,DIRECT
+        """
+        let compactRules = MergedRules(
+            lines: [
+                "RULE-SET,https://rules.example.com/compact.list,PROXY,no-resolve,extended-matching"
+            ],
+            ruleCount: 1,
+            duplicateCount: 0,
+            warnings: []
+        )
+        let expandedRuleLines = (0..<20_000).map { index in
+            "DOMAIN,expanded-\(index).example,PROXY"
+        }
+        let expandedRules = MergedRules(
+            lines: expandedRuleLines,
+            ruleCount: expandedRuleLines.count,
+            duplicateCount: 0,
+            warnings: []
+        )
+        let compactShared = try ProfileAssembler.assembleShared(
+            baseProfile: base,
+            sharedRules: compactRules,
+            finalPolicy: "DIRECT",
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+        let expandedShared = try ProfileAssembler.assembleShared(
+            baseProfile: base,
+            sharedRules: expandedRules,
+            finalPolicy: "DIRECT",
+            generatedAt: Date(timeIntervalSince1970: 0)
+        )
+
+        XCTAssertLessThan(compactShared.content.utf8.count * 100, expandedShared.content.utf8.count)
+        XCTAssertLessThan(
+            compactShared.content.components(separatedBy: "\n").count * 100,
+            expandedShared.content.components(separatedBy: "\n").count
+        )
+
+        let sharedFileName = "Compact Shared.dconf"
+        try Data(compactShared.content.utf8).write(to: directory.appending(path: sharedFileName))
+        for platform in RelayPlatform.allCases {
+            let profile = try ProfileAssembler.assemblePlatform(
+                platformProfile: "",
+                sharedFileName: sharedFileName,
+                sharedSections: compactShared.sections,
+                mergedRules: compactRules,
+                finalPolicy: "DIRECT",
+                generatedAt: Date(timeIntervalSince1970: 0)
+            )
+            let url = directory.appending(path: "compact-\(platform.rawValue).conf")
+            try Data(profile.content.utf8).write(to: url)
+            let validation = await SurgeCLIValidator.validate(profileAt: url)
+            XCTAssertTrue(validation.isValid, "\(platform.displayName): \(validation.message)")
+        }
+    }
+
     func testAssemblerReplacesOnlyRuleSectionAndStripsManagedDirective() throws {
         let base = """
         #!MANAGED-CONFIG https://example.com/base.conf interval=60

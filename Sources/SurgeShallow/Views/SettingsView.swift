@@ -1,4 +1,5 @@
 import SwiftUI
+import SurgeModuleManagement
 import SurgeProfileRelayCore
 
 struct SettingsView: View {
@@ -93,6 +94,8 @@ struct SettingsView: View {
                     )
                 )
             }
+
+            ModuleManagementSettingsSection(controller: model.moduleManagement)
 
             Section("安全门禁") {
                 Toggle(

@@ -11,6 +11,7 @@ struct GitHubRuleImportView: View {
     @State private var searchText = ""
     @State private var policy = "PROXY"
     @State private var preservesSourcePolicy = false
+    @State private var outputMode: RuleSourceOutputMode = .remoteReference
     @State private var platforms = Set(RelayPlatform.allCases)
     @State private var updateIntervalMinutes = 0
     @State private var isEnabled = true
@@ -200,6 +201,11 @@ struct GitHubRuleImportView: View {
                         sharedProfile: model.document.sharedProfile
                     )
                     Toggle("保留上游策略", isOn: $preservesSourcePolicy)
+                    Picker("生成方式", selection: $outputMode) {
+                        ForEach(RuleSourceOutputMode.allCases) { mode in
+                            Text(mode.displayName).tag(mode)
+                        }
+                    }
                     Toggle("启用新规则源", isOn: $isEnabled)
                 }
 
@@ -229,7 +235,9 @@ struct GitHubRuleImportView: View {
                 }
 
                 Section("格式识别") {
-                    Text(".yaml/.yml 使用 Clash payload，.conf 使用 Surge Profile；其他规则文本在首次更新时自动识别。")
+                    Text(outputMode == .remoteReference
+                         ? "普通规则文本会作为 Surge Ruleset 外部引用；Clash payload 与完整 Profile 仍会在本地转换后输出。"
+                         : ".yaml/.yml 使用 Clash payload，.conf 使用 Surge Profile；其他规则文本在首次更新时自动识别。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -315,12 +323,17 @@ struct GitHubRuleImportView: View {
         var usedNames = Set(model.document.sources.map { $0.name.lowercased() })
         return snapshot.files.filter { selectedPaths.contains($0.path) }.map { file in
             let name = uniqueName(base: file.sourceName, path: file.path, usedNames: &usedNames)
+            let canReference = file.suggestedFormat == .automatic || file.suggestedFormat == .surgeRuleset
+            let selectedOutputMode: RuleSourceOutputMode = outputMode == .remoteReference && canReference
+                ? .remoteReference
+                : .inlineMerged
             return RuleSource(
                 name: name,
                 url: file.downloadURL,
-                format: file.suggestedFormat,
+                format: selectedOutputMode == .remoteReference ? .surgeRuleset : file.suggestedFormat,
                 policy: policy,
-                preservesSourcePolicy: preservesSourcePolicy,
+                preservesSourcePolicy: selectedOutputMode == .inlineMerged && preservesSourcePolicy,
+                outputMode: selectedOutputMode,
                 isEnabled: isEnabled,
                 platforms: platforms,
                 updateIntervalMinutes: updateIntervalMinutes

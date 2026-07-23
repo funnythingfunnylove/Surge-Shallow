@@ -1,4 +1,5 @@
 import SwiftUI
+import SurgeModuleManagement
 import SurgeProfileRelayCore
 
 @main

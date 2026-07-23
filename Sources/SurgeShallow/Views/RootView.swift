@@ -1,4 +1,5 @@
 import AppKit
+import SurgeModuleManagement
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -13,14 +14,16 @@ struct RootView: View {
         } detail: {
             destinationView
                 .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            Task { await model.refresh(force: true) }
-                        } label: {
-                            Label("更新并合并", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                    if model.selection != .modules {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button {
+                                Task { await model.refresh(force: true) }
+                            } label: {
+                                Label("更新并合并", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                            }
+                            .disabled(model.isRefreshing)
+                            .buttonStyle(.glassProminent)
                         }
-                        .disabled(model.isRefreshing)
-                        .buttonStyle(.glassProminent)
                     }
                 }
         }
@@ -85,6 +88,11 @@ struct RootView: View {
         case .sources: SourcesView()
         case .proxy: ProxyView()
         case .profiles: ProfilesView()
+        case .modules:
+            ModuleManagementView(
+                controller: model.moduleManagement,
+                onOpenSettings: { model.selection = .settings }
+            )
         case .history: HistoryView()
         case .settings: SettingsView()
         }
@@ -95,7 +103,7 @@ private struct RelaySidebar: View {
     @Binding var selection: SidebarDestination
 
     private let managementDestinations: [SidebarDestination] = [
-        .dashboard, .sources, .proxy, .profiles, .history
+        .dashboard, .sources, .proxy, .profiles, .modules, .history
     ]
 
     var body: some View {

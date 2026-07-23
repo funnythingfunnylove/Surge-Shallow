@@ -385,7 +385,7 @@ public enum RuleParser {
 
 public enum RuleMerger {
     public static func merge(
-        _ parsedSources: [(source: RuleSource, parsed: ParsedRuleSource)],
+        _ sources: [(source: RuleSource, parsed: ParsedRuleSource?)],
         for platform: RelayPlatform
     ) -> MergedRules {
         var seen = Set<String>()
@@ -394,9 +394,16 @@ public enum RuleMerger {
         var duplicates = 0
         var count = 0
 
-        for item in parsedSources where item.source.isEnabled && item.source.platforms.contains(platform) {
+        for item in sources where item.source.isEnabled && item.source.platforms.contains(platform) {
+            if let directive = item.source.remoteRulesetDirective {
+                output.append(directive)
+                count += 1
+                continue
+            }
+
+            guard let parsed = item.parsed else { continue }
             var sourceRules: [String] = []
-            for rule in item.parsed.rules {
+            for rule in parsed.rules {
                 let key = RuleParser.canonicalKey(for: rule)
                 guard seen.insert(key).inserted else {
                     duplicates += 1
@@ -414,9 +421,21 @@ public enum RuleMerger {
             output.append("# --- \(safeName) · \(actualRuleCount) 条 ---")
             output.append(contentsOf: sourceRules)
             count += actualRuleCount
-            warnings.append(contentsOf: item.parsed.warnings.map { "\(item.source.name)：\($0)" })
+            warnings.append(contentsOf: parsed.warnings.map { "\(item.source.name)：\($0)" })
         }
 
         return MergedRules(lines: output, ruleCount: count, duplicateCount: duplicates, warnings: warnings)
+    }
+
+    public static func merge(
+        _ parsedSources: [(source: RuleSource, parsed: ParsedRuleSource)],
+        for platform: RelayPlatform
+    ) -> MergedRules {
+        let inlineSources = parsedSources.map { item -> (RuleSource, ParsedRuleSource?) in
+            var source = item.source
+            source.outputMode = .inlineMerged
+            return (source, item.parsed)
+        }
+        return merge(inlineSources, for: platform)
     }
 }

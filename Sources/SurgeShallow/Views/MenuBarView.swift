@@ -1,4 +1,5 @@
 import AppKit
+import SurgeModuleManagement
 import SwiftUI
 
 struct MenuBarView: View {
@@ -50,6 +51,10 @@ struct MenuBarView: View {
                 }
                 .disabled(target.lastGeneratedAt == nil)
             }
+
+            Divider()
+
+            ModuleManagementMenuSection(controller: model.moduleManagement)
 
             Divider()
 

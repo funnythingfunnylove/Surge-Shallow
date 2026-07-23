@@ -205,6 +205,7 @@ public enum ProfileImportService {
                 format: .surgeRuleList,
                 policy: "DIRECT",
                 preservesSourcePolicy: true,
+                outputMode: .inlineMerged,
                 state: .never
             ))
         }
@@ -237,6 +238,7 @@ public enum ProfileImportService {
                     policy: reference.policy,
                     preservesSourcePolicy: false,
                     rulesetOptions: reference.options,
+                    outputMode: .remoteReference,
                     state: .never
                 ))
                 rulesetCount += 1

@@ -40,7 +40,7 @@ struct SourcesView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-            .frame(minWidth: 360, idealWidth: 460)
+            .frame(width: 360)
 
             Group {
                 if let source = selectedSource {
@@ -115,7 +115,7 @@ struct SourcesView: View {
     }
 
     private func addSource() {
-        editedSource = RuleSource(name: "", url: "")
+        editedSource = RuleSource(name: "", url: "", format: .surgeRuleset)
     }
 
     private func canMoveSelected(by offset: Int) -> Bool {
@@ -157,7 +157,7 @@ private struct SourceRow: View {
                 .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            StatusPill(state: source.state)
+            SourceModePill(source: source)
         }
         .padding(.vertical, 5)
         .opacity(source.isEnabled ? 1 : 0.55)
@@ -183,13 +183,18 @@ private struct SourceDetailView: View {
                             .textSelection(.enabled)
                     }
                     Spacer()
-                    StatusPill(state: source.state)
+                    SourceModePill(source: source)
                 }
 
                 RelayCard {
                     Grid(alignment: .leading, horizontalSpacing: 34, verticalSpacing: 12) {
                         detailRow("格式", source.format.displayName)
-                        detailRow("合并策略", source.preservesSourcePolicy ? "保留上游策略（缺失时用 \(source.policy)）" : "统一改写为 \(source.policy)")
+                        detailRow("输出方式", source.resolvedOutputMode.displayName)
+                        if source.resolvedOutputMode == .remoteReference {
+                            detailRow("目标策略", source.policy)
+                        } else {
+                            detailRow("合并策略", source.preservesSourcePolicy ? "保留上游策略（缺失时用 \(source.policy)）" : "统一改写为 \(source.policy)")
+                        }
                         if source.format == .surgeRuleset {
                             detailRow(
                                 "Ruleset 参数",
@@ -202,12 +207,16 @@ private struct SourceDetailView: View {
                             )
                         }
                         detailRow("平台", source.platforms.map(\.displayName).sorted().joined(separator: "、"))
-                        detailRow("更新频率", source.updateIntervalMinutes == 0 ? "使用全局设置" : "每 \(source.updateIntervalMinutes) 分钟")
-                        detailRow("缓存标识", source.etag ?? source.contentHash?.prefix(12).description ?? "尚无")
+                        if source.resolvedOutputMode == .remoteReference {
+                            detailRow("加载方式", "由 Surge 直接加载，不写入规则正文")
+                        } else {
+                            detailRow("更新频率", source.updateIntervalMinutes == 0 ? "使用全局设置" : "每 \(source.updateIntervalMinutes) 分钟")
+                            detailRow("缓存标识", source.etag ?? source.contentHash?.prefix(12).description ?? "尚无")
+                        }
                     }
                 }
 
-                if let date = source.lastCheckedAt {
+                if source.resolvedOutputMode == .inlineMerged, let date = source.lastCheckedAt {
                     Label("上次检查：\(date.formatted(date: .abbreviated, time: .standard))", systemImage: "clock")
                         .foregroundStyle(.secondary)
                 }
@@ -306,14 +315,31 @@ private struct SourceEditorView: View {
                     }
                 }
 
-                Section("合并") {
+                if !draft.isEmbedded {
+                    Section("输出方式") {
+                        Picker("生成方式", selection: outputModeBinding) {
+                            ForEach(RuleSourceOutputMode.allCases) { mode in
+                                Text(mode.displayName)
+                                    .tag(mode)
+                                    .disabled(mode == .remoteReference && !draft.supportsRemoteRulesetReference)
+                            }
+                        }
+                        Text(draft.resolvedOutputMode.detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Section(draft.resolvedOutputMode == .remoteReference ? "规则策略" : "合并") {
                     RelayPolicyPicker(
                         title: "目标策略",
                         selection: $draft.policy,
                         sharedProfile: model.document.sharedProfile
                     )
                     if draft.format == .surgeRuleset {
-                        Text("Surge 外部 Ruleset 的每一行不包含策略；Relay 下载、缓存并展开后统一使用上面的目标策略。")
+                        Text(draft.resolvedOutputMode == .remoteReference
+                             ? "最终只写入一条 RULE-SET 指令；Surge 直接加载 URL，并应用上面的策略与参数。"
+                             : "Surge 外部 Ruleset 的每一行不包含策略；Surge Shallow 下载、缓存并展开后统一使用上面的目标策略。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                         ForEach(RuleSourceRulesetOption.allCases) { option in
@@ -352,12 +378,18 @@ private struct SourceEditorView: View {
                 }
 
                 Section("更新") {
-                    Picker("检查频率", selection: $draft.updateIntervalMinutes) {
-                        Text("使用全局设置").tag(0)
-                        Text("每 15 分钟").tag(15)
-                        Text("每小时").tag(60)
-                        Text("每 6 小时").tag(360)
-                        Text("每天").tag(1_440)
+                    if draft.resolvedOutputMode == .remoteReference {
+                        Text("外部引用由 Surge 加载；Surge Shallow 不下载正文，也不参与合并或去重。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Picker("检查频率", selection: $draft.updateIntervalMinutes) {
+                            Text("使用全局设置").tag(0)
+                            Text("每 15 分钟").tag(15)
+                            Text("每小时").tag(60)
+                            Text("每 6 小时").tag(360)
+                            Text("每天").tag(1_440)
+                        }
                     }
                     Toggle("启用此规则源", isOn: $draft.isEnabled)
                 }
@@ -368,7 +400,7 @@ private struct SourceEditorView: View {
 
             HStack {
                 Text(isValid
-                     ? "保存后可立即执行首次检查。"
+                     ? (draft.resolvedOutputMode == .remoteReference ? "保存后将以紧凑 RULE-SET 引用输出。" : "保存后可立即执行首次检查。")
                      : (draft.isEmbedded ? "请填写名称、策略并至少选择一个平台。" : "请填写有效的 HTTP(S) URL、名称、策略和至少一个平台。"))
                     .font(.caption)
                     .foregroundStyle(isValid ? Color.secondary : Color.red)
@@ -381,6 +413,10 @@ private struct SourceEditorView: View {
                         draft.policy = reference.policy
                         draft.format = .surgeRuleset
                         draft.rulesetOptions = reference.options
+                        draft.outputMode = .remoteReference
+                    }
+                    if draft.resolvedOutputMode == .remoteReference && draft.format == .automatic {
+                        draft.format = .surgeRuleset
                     }
                     if draft.format == .surgeRuleset {
                         draft.preservesSourcePolicy = false
@@ -397,7 +433,7 @@ private struct SourceEditorView: View {
             }
             .padding(16)
         }
-        .frame(width: 620, height: 630)
+        .frame(width: 620, height: 700)
         .navigationTitle(isNew ? "添加规则源" : "编辑规则源")
         .onChange(of: draft.url) { _, newValue in
             guard let reference = RemoteRulesetReference.parse(newValue) else { return }
@@ -406,6 +442,12 @@ private struct SourceEditorView: View {
             draft.format = .surgeRuleset
             draft.preservesSourcePolicy = false
             draft.rulesetOptions = reference.options
+            draft.outputMode = .remoteReference
+        }
+        .onChange(of: draft.format) { _, _ in
+            if draft.resolvedOutputMode == .remoteReference && !draft.supportsRemoteRulesetReference {
+                draft.outputMode = .inlineMerged
+            }
         }
     }
 
@@ -418,5 +460,29 @@ private struct SourceEditorView: View {
                 draft.rulesetOptions = options
             }
         )
+    }
+
+    private var outputModeBinding: Binding<RuleSourceOutputMode> {
+        Binding(
+            get: { draft.resolvedOutputMode },
+            set: { draft.outputMode = $0 }
+        )
+    }
+}
+
+private struct SourceModePill: View {
+    let source: RuleSource
+
+    var body: some View {
+        if source.resolvedOutputMode == .remoteReference {
+            Text("外部引用")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(SurgePalette.accent)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(SurgePalette.accent.opacity(0.11), in: Capsule())
+        } else {
+            StatusPill(state: source.state)
+        }
     }
 }

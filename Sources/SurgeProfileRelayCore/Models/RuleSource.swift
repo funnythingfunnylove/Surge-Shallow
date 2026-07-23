@@ -43,6 +43,29 @@ public enum RuleSourceRulesetOption: String, Codable, CaseIterable, Identifiable
     }
 }
 
+public enum RuleSourceOutputMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case remoteReference
+    case inlineMerged
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .remoteReference: "外部 Ruleset 引用"
+        case .inlineMerged: "下载并内联合并"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .remoteReference:
+            "最终 Profile 只写入 RULE-SET URL，由 Surge 加载规则，文件体积最小。"
+        case .inlineMerged:
+            "由 Surge Shallow 下载、转换、合并并去重，再把规则正文写入 Profile。"
+        }
+    }
+}
+
 public struct RemoteRulesetReference: Hashable, Sendable {
     public var url: String
     public var policy: String
@@ -107,9 +130,13 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
     public var format: RuleSourceFormat
     public var policy: String
     public var preservesSourcePolicy: Bool
-    /// Parameters applied when a policy-less external Surge Ruleset is expanded locally.
+    /// Parameters preserved on a compact RULE-SET directive or applied when the Ruleset is
+    /// expanded locally.
     /// Optional keeps relay.json documents from schema v1-v5 source-compatible.
     public var rulesetOptions: Set<RuleSourceRulesetOption>?
+    /// Missing means the source came from a legacy document and must retain the historical
+    /// download/merge behavior. Newly created sources default to a compact remote reference.
+    public var outputMode: RuleSourceOutputMode?
     public var isEnabled: Bool
     public var platforms: Set<RelayPlatform>
     public var updateIntervalMinutes: Int
@@ -132,6 +159,7 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
         policy: String = "PROXY",
         preservesSourcePolicy: Bool = false,
         rulesetOptions: Set<RuleSourceRulesetOption> = [],
+        outputMode: RuleSourceOutputMode? = .remoteReference,
         isEnabled: Bool = true,
         platforms: Set<RelayPlatform> = Set(RelayPlatform.allCases),
         updateIntervalMinutes: Int = 0,
@@ -153,6 +181,7 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
         self.policy = policy
         self.preservesSourcePolicy = preservesSourcePolicy
         self.rulesetOptions = rulesetOptions
+        self.outputMode = outputMode
         self.isEnabled = isEnabled
         self.platforms = platforms
         self.updateIntervalMinutes = updateIntervalMinutes
@@ -174,6 +203,34 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
 
     public var isEmbedded: Bool {
         embeddedContent != nil
+    }
+
+    public var resolvedOutputMode: RuleSourceOutputMode {
+        outputMode ?? .inlineMerged
+    }
+
+    public var supportsRemoteRulesetReference: Bool {
+        !isEmbedded && (format == .automatic || format == .surgeRuleset)
+    }
+
+    public var remoteRulesetDirective: String? {
+        guard resolvedOutputMode == .remoteReference,
+              supportsRemoteRulesetReference else { return nil }
+        let normalizedURL = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedPolicy = policy.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard RemoteRulesetReference.isRemoteURL(normalizedURL),
+              !normalizedURL.contains(","),
+              !normalizedURL.contains("\n"),
+              !normalizedURL.contains("\r"),
+              !normalizedPolicy.isEmpty,
+              !normalizedPolicy.contains(","),
+              !normalizedPolicy.contains("\n"),
+              !normalizedPolicy.contains("\r") else { return nil }
+        let optionTokens = RuleSourceRulesetOption.allCases.compactMap { option in
+            rulesetOptions?.contains(option) == true ? option.rawValue : nil
+        }
+        return (["RULE-SET", normalizedURL, normalizedPolicy] + optionTokens)
+            .joined(separator: ",")
     }
 
     public func isDue(globalIntervalMinutes: Int, now: Date = .now) -> Bool {

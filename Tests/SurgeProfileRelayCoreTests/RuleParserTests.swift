@@ -2,6 +2,23 @@ import XCTest
 @testable import SurgeProfileRelayCore
 
 final class RuleParserTests: XCTestCase {
+    func testNewRemoteSourceDefaultsToCompactRulesetReference() {
+        let source = RuleSource(
+            name: "Compact",
+            url: "https://rules.example.com/compact.list",
+            format: .surgeRuleset,
+            policy: "PROXY",
+            rulesetOptions: [.noResolve, .extendedMatching]
+        )
+
+        XCTAssertEqual(source.outputMode, .remoteReference)
+        XCTAssertEqual(source.resolvedOutputMode, .remoteReference)
+        XCTAssertEqual(
+            source.remoteRulesetDirective,
+            "RULE-SET,https://rules.example.com/compact.list,PROXY,no-resolve,extended-matching"
+        )
+    }
+
     func testAutomaticDetectionFindsProfileRuleSection() throws {
         let content = """
         [General]
@@ -133,6 +150,42 @@ final class RuleParserTests: XCTestCase {
         XCTAssertEqual(ios.ruleCount, 2)
         XCTAssertEqual(ios.duplicateCount, 0)
         XCTAssertTrue(ios.lines.contains("DOMAIN,example.com,DIRECT"))
+    }
+
+    func testMergerKeepsCompactReferencesInSourceOrderWithoutContentDeduplication() {
+        let first = RuleSource(
+            name: "First",
+            url: "https://rules.example.com/shared.list",
+            format: .surgeRuleset,
+            policy: "PROXY",
+            rulesetOptions: [.noResolve]
+        )
+        let second = RuleSource(
+            name: "Second",
+            url: "https://rules.example.com/shared.list",
+            format: .surgeRuleset,
+            policy: "DIRECT",
+            platforms: [.macOS]
+        )
+
+        let mac = RuleMerger.merge(
+            [(source: first, parsed: nil), (source: second, parsed: nil)],
+            for: .macOS
+        )
+        let ios = RuleMerger.merge(
+            [(source: first, parsed: nil), (source: second, parsed: nil)],
+            for: .iOS
+        )
+
+        XCTAssertEqual(mac.lines, [
+            "RULE-SET,https://rules.example.com/shared.list,PROXY,no-resolve",
+            "RULE-SET,https://rules.example.com/shared.list,DIRECT"
+        ])
+        XCTAssertEqual(mac.ruleCount, 2)
+        XCTAssertEqual(mac.duplicateCount, 0)
+        XCTAssertEqual(ios.lines, [
+            "RULE-SET,https://rules.example.com/shared.list,PROXY,no-resolve"
+        ])
     }
 
     func testRemoteRulesetExpandsPolicyAndOfficialOptions() throws {

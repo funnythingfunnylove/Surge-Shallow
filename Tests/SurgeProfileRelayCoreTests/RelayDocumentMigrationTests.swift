@@ -56,6 +56,8 @@ final class RelayDocumentMigrationTests: XCTestCase {
         XCTAssertEqual(source.id, sourceID)
         XCTAssertNil(source.embeddedContent)
         XCTAssertNil(source.rulesetOptions)
+        XCTAssertNil(source.outputMode)
+        XCTAssertEqual(source.resolvedOutputMode, .inlineMerged)
     }
 
     func testSchemaOneProfilesExtractIdenticalSectionsAndPreserveDifferences() throws {

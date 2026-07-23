@@ -3,6 +3,43 @@ import XCTest
 @testable import SurgeProfileRelayCore
 
 final class RelayEngineTests: XCTestCase {
+    func testCompactRulesetReferenceSkipsFetcherAndKeepsGeneratedProfileSmall() async throws {
+        let sourceID = UUID()
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fetcher = CountingFetcher()
+        let engine = RelayEngine(fetcher: fetcher)
+        var document = makeDocument(sourceID: sourceID, directory: directory)
+        document.sources[0].format = .surgeRuleset
+        document.sources[0].outputMode = .remoteReference
+        document.sources[0].rulesetOptions = [.noResolve, .extendedMatching]
+
+        let result = await engine.refresh(
+            document: document,
+            persistence: testPersistence(outputDirectory: directory),
+            force: true
+        )
+
+        XCTAssertTrue(result.succeeded, result.details)
+        let fetchCount = await fetcher.callCount
+        XCTAssertEqual(fetchCount, 0)
+        let shared = try XCTUnwrap(result.generatedSharedProfile?.content)
+        XCTAssertTrue(shared.contains(
+            "RULE-SET,https://example.com/rules,PROXY,no-resolve,extended-matching"
+        ))
+        XCTAssertFalse(shared.contains("expanded-upstream.example"))
+        let effectiveRules = shared.components(separatedBy: "\n").filter {
+            let line = $0.trimmingCharacters(in: .whitespacesAndNewlines)
+            return !line.isEmpty && !line.hasPrefix("#")
+        }
+        XCTAssertEqual(effectiveRules.suffix(2), [
+            "RULE-SET,https://example.com/rules,PROXY,no-resolve,extended-matching",
+            "FINAL,DIRECT"
+        ])
+        XCTAssertLessThan(shared.utf8.count, 1_000)
+        XCTAssertEqual(result.document.sources[0].lastRuleCount, 0)
+    }
+
     func testEngineFetchesValidatesAndPublishesBothProfiles() async throws {
         let sourceID = UUID()
         let directory = temporaryDirectory()
@@ -156,7 +193,8 @@ final class RelayEngineTests: XCTestCase {
             id: sourceID,
             name: "Test",
             url: "https://example.com/rules",
-            policy: "PROXY"
+            policy: "PROXY",
+            outputMode: .inlineMerged
         )
         let suffix = UUID().uuidString
         var targets = RelayPlatform.allCases.map(TargetProfile.defaults)
@@ -180,6 +218,25 @@ final class RelayEngineTests: XCTestCase {
                 path: "Application Support",
                 directoryHint: .isDirectory
             )
+        )
+    }
+}
+
+private actor CountingFetcher: RuleSourceFetching {
+    private(set) var callCount = 0
+
+    func fetch(
+        source: RuleSource,
+        timeoutSeconds: Int,
+        maximumSizeMB: Int
+    ) async throws -> RuleSourceFetchResult {
+        callCount += 1
+        return .modified(
+            content: String(repeating: "DOMAIN,expanded-upstream.example\n", count: 20_000),
+            etag: nil,
+            lastModified: nil,
+            contentHash: "expanded",
+            checkedAt: .now
         )
     }
 }

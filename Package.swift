@@ -18,13 +18,32 @@ let package = Package(
         .target(
             name: "SurgeProfileRelayCore"
         ),
+        .target(
+            name: "SurgeModuleManagement",
+            path: "Sources/SurgeModuleManagement",
+            exclude: [
+                "LICENSE"
+            ],
+            resources: [
+                .process("Assets.xcassets"),
+                .copy("WebResources")
+            ],
+            linkerSettings: [
+                .linkedFramework("JavaScriptCore")
+            ]
+        ),
         .executableTarget(
             name: "SurgeShallow",
-            dependencies: ["SurgeProfileRelayCore"]
+            dependencies: ["SurgeProfileRelayCore", "SurgeModuleManagement"]
         ),
         .testTarget(
             name: "SurgeProfileRelayCoreTests",
             dependencies: ["SurgeProfileRelayCore"]
+        ),
+        .testTarget(
+            name: "SurgeModuleManagementTests",
+            dependencies: ["SurgeModuleManagement"],
+            path: "Tests/SurgeModuleManagementTests"
         )
     ]
 )

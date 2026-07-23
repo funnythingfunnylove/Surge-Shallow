@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import ServiceManagement
+import SurgeModuleManagement
 import SurgeProfileRelayCore
 
 enum SidebarDestination: String, CaseIterable, Identifiable {
@@ -8,6 +9,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
     case sources
     case proxy
     case profiles
+    case modules
     case history
     case settings
 
@@ -19,6 +21,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .sources: "规则源"
         case .proxy: "Proxy"
         case .profiles: "Profiles"
+        case .modules: "模块"
         case .history: "更新记录"
         case .settings: "设置"
         }
@@ -30,6 +33,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .sources: "link"
         case .proxy: "point.3.connected.trianglepath.dotted"
         case .profiles: "doc.on.doc"
+        case .modules: "shippingbox"
         case .history: "clock.arrow.trianglehead.counterclockwise.rotate.90"
         case .settings: "gearshape"
         }
@@ -39,6 +43,9 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    /// Module management is a feature of this application and shares the
+    /// application's lifetime; it is not a second embedded app instance.
+    let moduleManagement: ModuleManagementController
     var document: RelayDocument
     var selection: SidebarDestination = .dashboard
     var selectedSourceID: UUID?
@@ -58,6 +65,7 @@ final class AppModel {
     private var schedulerTask: Task<Void, Never>?
 
     init() {
+        moduleManagement = ModuleManagementController()
         let persistence = RelayPersistence()
         do {
             var loaded = try persistence.loadDocument()
@@ -105,6 +113,7 @@ final class AppModel {
             return
         }
 
+        Task { await moduleManagement.startConfiguredRuntime() }
         restartScheduler()
         if document.settings.refreshOnLaunch && document.sources.contains(where: { $0.isEnabled }) {
             Task { await refresh(force: false) }
@@ -163,6 +172,7 @@ final class AppModel {
             source.format = .surgeRuleset
             source.preservesSourcePolicy = false
             source.rulesetOptions = reference.options
+            source.outputMode = .remoteReference
         } else if source.format == .surgeRuleset {
             source.preservesSourcePolicy = false
         }
@@ -173,7 +183,8 @@ final class AppModel {
                 || old.embeddedContent != source.embeddedContent
                 || old.format != source.format
                 || old.policy != source.policy
-                || old.rulesetOptions != source.rulesetOptions {
+                || old.rulesetOptions != source.rulesetOptions
+                || old.outputMode != source.outputMode {
                 document.sources[index].etag = nil
                 document.sources[index].lastModified = nil
                 document.sources[index].lastCheckedAt = nil
