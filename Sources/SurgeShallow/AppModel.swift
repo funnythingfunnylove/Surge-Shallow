@@ -94,6 +94,7 @@ final class AppModel {
     /// Module management is a feature of this application and shares the
     /// application's lifetime; it is not a second embedded app instance.
     let moduleManagement: ModuleManagementController
+    let softwareUpdate: SoftwareUpdateController
     var document: RelayDocument
     var selection: SidebarDestination = .dashboard
     var selectedSourceID: UUID?
@@ -111,9 +112,11 @@ final class AppModel {
 
     private let engine = RelayEngine()
     private var schedulerTask: Task<Void, Never>?
+    private var softwareUpdateSchedulerTask: Task<Void, Never>?
 
     init() {
         moduleManagement = ModuleManagementController()
+        softwareUpdate = SoftwareUpdateController()
         let persistence = RelayPersistence()
         do {
             var loaded = try persistence.loadDocument()
@@ -163,6 +166,17 @@ final class AppModel {
 
         if ProcessInfo.processInfo.arguments.contains("--verification-mode") {
             statusMessage = "验证模式：未启动自动刷新"
+            if let releasePath = ProcessInfo.processInfo.environment[
+                "SURGE_SHALLOW_VERIFICATION_RELEASE_JSON"
+            ], !releasePath.isEmpty {
+                do {
+                    let data = try Data(contentsOf: URL(filePath: releasePath))
+                    let release = try GitHubReleaseDecoder().decode(data)
+                    softwareUpdate.presentForVerification(release)
+                } catch {
+                    presentedError = "更新弹窗验证数据无效：\(error.localizedDescription)"
+                }
+            }
             if let previewPath = ProcessInfo.processInfo.environment[
                 "SURGE_SHALLOW_VERIFICATION_IMPORT_PROFILE"
             ], !previewPath.isEmpty {
@@ -172,6 +186,7 @@ final class AppModel {
         }
 
         Task { await moduleManagement.startConfiguredRuntime() }
+        startSoftwareUpdateScheduler()
         restartScheduler()
         if document.settings.refreshOnLaunch && document.sources.contains(where: { $0.isEnabled }) {
             Task { await refresh(force: false) }
@@ -206,6 +221,45 @@ final class AppModel {
         }
         if !result.succeeded {
             presentedError = result.details
+        }
+    }
+
+    func checkForSoftwareUpdates(userInitiated: Bool = true) async {
+        do {
+            let result = try await softwareUpdate.checkForUpdates()
+            switch result {
+            case .upToDate(let release):
+                if userInitiated {
+                    presentedError = "当前已是最新版本 \(softwareUpdate.currentVersion)。GitHub 最新正式版本为 \(release.version)。"
+                }
+            case .updateAvailable:
+                break
+            }
+        } catch {
+            if userInitiated {
+                presentedError = "检查软件更新失败：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    func presentAvailableSoftwareUpdateOrCheck() {
+        if softwareUpdate.availableUpdate != nil {
+            softwareUpdate.presentAvailableUpdate()
+        } else {
+            Task { await checkForSoftwareUpdates() }
+        }
+    }
+
+    func installSoftwareUpdate(_ release: SoftwareRelease) async {
+        do {
+            try await softwareUpdate.install(
+                release,
+                currentApplicationURL: Bundle.main.bundleURL,
+                processIdentifier: ProcessInfo.processInfo.processIdentifier
+            )
+            NSApp.terminate(nil)
+        } catch {
+            presentedError = "更新安装失败：\(error.localizedDescription)"
         }
     }
 
@@ -580,6 +634,40 @@ final class AppModel {
                     $0.isEnabled && $0.isDue(globalIntervalMinutes: self.document.settings.refreshIntervalMinutes)
                 }
                 if shouldRefresh { await self.refresh(force: false) }
+            }
+        }
+    }
+
+    private func startSoftwareUpdateScheduler() {
+        softwareUpdateSchedulerTask?.cancel()
+        softwareUpdateSchedulerTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.softwareUpdate.shouldCheckAutomatically {
+                    await self.checkForSoftwareUpdates(userInitiated: false)
+                }
+                try? await Task.sleep(for: .seconds(1_800))
+            }
+        }
+
+        if let result = SoftwareUpdateInstallationResultStore.consume() {
+            switch result {
+            case .pendingConfirmation(let version):
+                Task { [weak self] in
+                    do {
+                        try await Task.sleep(for: .seconds(5))
+                        try SoftwareUpdateInstallationResultStore.confirmInstallation()
+                        self?.presentedError = "Surge Shallow 已成功更新到 \(version)。"
+                    } catch is CancellationError {
+                        return
+                    } catch {
+                        self?.presentedError = "新版本启动确认失败，安装器将自动恢复原版本。"
+                    }
+                }
+            case .restoredPreviousVersion:
+                presentedError = "软件更新未完成，已自动恢复并重新打开原版本。"
+            case .installationFailed:
+                presentedError = "软件更新未完成，安装器无法恢复原版本。请从 GitHub Release 重新下载安装。"
             }
         }
     }

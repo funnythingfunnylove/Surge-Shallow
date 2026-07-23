@@ -12,7 +12,7 @@ struct SurgeShallowApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Surge Shallow") {
+        Window("Surge Shallow", id: "main") {
             RootView()
                 .environment(model)
                 .surgeTheme()
@@ -23,6 +23,8 @@ struct SurgeShallowApp: App {
         .defaultSize(width: 1180, height: 760)
         .windowResizability(.contentMinSize)
         .commands {
+            SoftwareUpdateCommands(model: model)
+
             CommandMenu("Relay") {
                 Button("立即更新并合并") {
                     Task { await model.refresh(force: true) }
@@ -51,6 +53,21 @@ struct SurgeShallowApp: App {
                 .surgeTheme()
                 .synchronizeApplicationAppearance(appearance)
                 .frame(width: 620, height: 520)
+        }
+    }
+}
+
+private struct SoftwareUpdateCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+    let model: AppModel
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("检查更新…") {
+                openWindow(id: "main")
+                model.presentAvailableSoftwareUpdateOrCheck()
+            }
+            .disabled(model.softwareUpdate.isBusy)
         }
     }
 }

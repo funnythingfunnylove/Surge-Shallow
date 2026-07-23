@@ -70,6 +70,18 @@ struct RootView: View {
             ProfileImportReviewView(draft: draft)
                 .environment(model)
         }
+        .sheet(
+            item: Binding(
+                get: { model.softwareUpdate.presentedRelease },
+                set: { release in
+                    if release == nil { model.softwareUpdate.dismissPresentedUpdate() }
+                }
+            )
+        ) { release in
+            SoftwareUpdateView(release: release)
+                .environment(model)
+                .surgeTheme()
+        }
         .overlay {
             if model.isParsingProfileImport {
                 GlassProgressOverlay(

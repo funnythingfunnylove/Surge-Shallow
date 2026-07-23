@@ -4,6 +4,7 @@ import SurgeProfileRelayCore
 
 struct SettingsView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(SurgeAppearance.storageKey) private var appearanceRawValue = SurgeAppearance.system.rawValue
 
     private var appearance: SurgeAppearance {
@@ -12,6 +13,7 @@ struct SettingsView: View {
 
     var body: some View {
         @Bindable var model = model
+        @Bindable var softwareUpdate = model.softwareUpdate
 
         Form {
             Section("外观") {
@@ -59,7 +61,7 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("自动更新") {
+            Section("规则更新") {
                 Toggle(
                     "自动检查规则源",
                     isOn: Binding(
@@ -93,6 +95,47 @@ struct SettingsView: View {
                         set: { model.setLaunchAtLogin($0) }
                     )
                 )
+            }
+
+            Section("软件更新") {
+                LabeledContent("当前版本") {
+                    Text("\(softwareUpdate.currentVersion) (\(softwareUpdate.currentBuild))")
+                        .monospacedDigit()
+                }
+                Toggle(
+                    "自动检查 GitHub Release（每 6 小时）",
+                    isOn: $softwareUpdate.automaticChecksEnabled
+                )
+                LabeledContent("更新状态") {
+                    HStack(spacing: 7) {
+                        if softwareUpdate.isBusy {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else {
+                            Image(systemName: softwareUpdateStatusSymbol)
+                                .foregroundStyle(softwareUpdateStatusColor)
+                        }
+                        Text(softwareUpdate.statusText)
+                            .foregroundStyle(softwareUpdateStatusColor)
+                    }
+                }
+                HStack {
+                    Text("通过 GitHub 最新正式 Release 检查版本，并在安装前校验更新包与代码签名完整性。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    if softwareUpdate.availableUpdate != nil {
+                        Button("查看更新日志") {
+                            openWindow(id: "main")
+                            softwareUpdate.presentAvailableUpdate()
+                        }
+                    }
+                    Button("检查更新") {
+                        openWindow(id: "main")
+                        Task { await model.checkForSoftwareUpdates() }
+                    }
+                    .disabled(softwareUpdate.isBusy)
+                }
             }
 
             ModuleManagementSettingsSection(controller: model.moduleManagement)
@@ -138,5 +181,18 @@ struct SettingsView: View {
         .formStyle(.grouped)
         .disabled(model.isRefreshing)
         .navigationTitle("设置")
+    }
+
+    private var softwareUpdateStatusColor: Color {
+        switch model.softwareUpdate.phase.presentation.tone {
+        case .neutral: .secondary
+        case .accent: SurgePalette.accent
+        case .success: SurgePalette.success
+        case .danger: SurgePalette.danger
+        }
+    }
+
+    private var softwareUpdateStatusSymbol: String {
+        model.softwareUpdate.phase.presentation.symbol
     }
 }

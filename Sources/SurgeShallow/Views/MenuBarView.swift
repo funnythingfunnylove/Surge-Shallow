@@ -4,6 +4,7 @@ import SwiftUI
 
 struct MenuBarView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -41,6 +42,20 @@ struct MenuBarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(model.isRefreshing)
+
+            Button {
+                openWindow(id: "main")
+                model.presentAvailableSoftwareUpdateOrCheck()
+            } label: {
+                Label(
+                    model.softwareUpdate.availableUpdate.map { release in
+                        "更新到 \(release.version.description)"
+                    } ?? "检查软件更新",
+                    systemImage: "arrow.down.app"
+                )
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .disabled(model.softwareUpdate.isBusy)
 
             ForEach(model.document.targets.filter(\.isEnabled)) { target in
                 Button {
