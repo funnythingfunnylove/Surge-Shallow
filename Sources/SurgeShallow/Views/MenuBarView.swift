@@ -38,7 +38,7 @@ struct MenuBarView: View {
             Button {
                 Task { await model.refresh(force: true) }
             } label: {
-                Label("立即更新并合并", systemImage: "arrow.clockwise")
+                Label("合并生成", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(model.isRefreshing)

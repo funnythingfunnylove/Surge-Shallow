@@ -224,20 +224,22 @@ struct GitHubRuleImportView: View {
                     }
                 }
 
-                Section("更新") {
-                    Picker("检查频率", selection: $updateIntervalMinutes) {
-                        Text("使用全局设置").tag(0)
-                        Text("每 15 分钟").tag(15)
-                        Text("每小时").tag(60)
-                        Text("每 6 小时").tag(360)
-                        Text("每天").tag(1_440)
+                if outputMode == .inlineMerged {
+                    Section("本地处理") {
+                        Picker("处理频率", selection: $updateIntervalMinutes) {
+                            Text("使用全局设置").tag(0)
+                            Text("每 15 分钟").tag(15)
+                            Text("每小时").tag(60)
+                            Text("每 6 小时").tag(360)
+                            Text("每天").tag(1_440)
+                        }
                     }
                 }
 
                 Section("格式识别") {
                     Text(outputMode == .remoteReference
-                         ? "普通规则文本会作为 Surge Ruleset 外部引用；Clash payload 与完整 Profile 仍会在本地转换后输出。"
-                         : ".yaml/.yml 使用 Clash payload，.conf 使用 Surge Profile；其他规则文本在首次更新时自动识别。")
+                         ? "普通规则文本会作为 Surge Ruleset 外部引用；只记录链接，不下载或更新正文。Clash payload 与完整 Profile 仍会在本地转换后输出。"
+                         : "已识别为 Surge Ruleset 的文件仍只保留链接；.yaml/.yml 与完整 Profile 等其他格式会在合并生成时执行本地转换。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -295,7 +297,7 @@ struct GitHubRuleImportView: View {
     private var footerMessage: String {
         if platforms.isEmpty { return "请至少选择一个平台。" }
         if selectedPaths.isEmpty { return "请选择至少一个尚未添加的规则文件。" }
-        return "将创建独立规则源；之后可分别调整顺序、策略和更新频率。"
+        return "将创建独立规则源；Surge Ruleset 只保存链接，其他格式可分别调整本地处理频率。"
     }
 
     @MainActor
@@ -324,7 +326,8 @@ struct GitHubRuleImportView: View {
         return snapshot.files.filter { selectedPaths.contains($0.path) }.map { file in
             let name = uniqueName(base: file.sourceName, path: file.path, usedNames: &usedNames)
             let canReference = file.suggestedFormat == .automatic || file.suggestedFormat == .surgeRuleset
-            let selectedOutputMode: RuleSourceOutputMode = outputMode == .remoteReference && canReference
+            let mustReference = file.suggestedFormat == .surgeRuleset
+            let selectedOutputMode: RuleSourceOutputMode = (mustReference || outputMode == .remoteReference) && canReference
                 ? .remoteReference
                 : .inlineMerged
             return RuleSource(
@@ -336,7 +339,7 @@ struct GitHubRuleImportView: View {
                 outputMode: selectedOutputMode,
                 isEnabled: isEnabled,
                 platforms: platforms,
-                updateIntervalMinutes: updateIntervalMinutes
+                updateIntervalMinutes: selectedOutputMode == .remoteReference ? 0 : updateIntervalMinutes
             )
         }
     }

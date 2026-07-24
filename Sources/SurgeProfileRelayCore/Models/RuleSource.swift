@@ -120,6 +120,34 @@ public enum RuleSourceState: String, Codable, Sendable {
     }
 }
 
+public enum RuleSourceContentOrigin: String, Codable, Sendable {
+    case importedProfile
+    case manual
+}
+
+public enum ManualRulePublicationMode: String, Codable, CaseIterable, Identifiable, Sendable {
+    case inline
+    case detachedProfile
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .inline: "内联合并"
+        case .detachedProfile: "独立 .dconf 引用"
+        }
+    }
+
+    public var detail: String {
+        switch self {
+        case .inline:
+            "规则正文按当前顺序合并到生成的 [Rule] 段。"
+        case .detachedProfile:
+            "生成独立 .dconf，并在对应 Profile 的 [Rule] 中使用 #!include 引用。"
+        }
+    }
+}
+
 public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
     public var id: UUID
     public var name: String
@@ -127,6 +155,13 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
     /// Rules captured from an imported local Profile. Keeping them in relay.json makes the
     /// migrated configuration portable to every Mac that shares the management document.
     public var embeddedContent: String?
+    /// Missing retains compatibility with older imported Profile sources and remote sources.
+    public var contentOrigin: RuleSourceContentOrigin?
+    /// Manual sources may remain inline or be published as a managed detached [Rule] profile.
+    /// Optional keeps existing relay.json documents source-compatible.
+    public var manualPublicationMode: ManualRulePublicationMode?
+    /// User-facing detached filename. The engine always uses the sanitized computed value.
+    public var detachedFileName: String?
     public var format: RuleSourceFormat
     public var policy: String
     public var preservesSourcePolicy: Bool
@@ -149,12 +184,19 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
     public var lastRuleCount: Int
     public var state: RuleSourceState
     public var lastError: String?
+    /// Identifies sources installed by a one-click routing preset. Manual sources keep this nil.
+    public var managedPresetID: String?
+    /// Stable identity within the preset catalog, used to update shared entries without duplication.
+    public var managedPresetEntryID: String?
 
     public init(
         id: UUID = UUID(),
         name: String,
         url: String,
         embeddedContent: String? = nil,
+        contentOrigin: RuleSourceContentOrigin? = nil,
+        manualPublicationMode: ManualRulePublicationMode? = nil,
+        detachedFileName: String? = nil,
         format: RuleSourceFormat = .automatic,
         policy: String = "PROXY",
         preservesSourcePolicy: Bool = false,
@@ -171,12 +213,17 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
         contentHash: String? = nil,
         lastRuleCount: Int = 0,
         state: RuleSourceState = .never,
-        lastError: String? = nil
+        lastError: String? = nil,
+        managedPresetID: String? = nil,
+        managedPresetEntryID: String? = nil
     ) {
         self.id = id
         self.name = name
         self.url = url
         self.embeddedContent = embeddedContent
+        self.contentOrigin = contentOrigin
+        self.manualPublicationMode = manualPublicationMode
+        self.detachedFileName = detachedFileName
         self.format = format
         self.policy = policy
         self.preservesSourcePolicy = preservesSourcePolicy
@@ -194,10 +241,13 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
         self.lastRuleCount = lastRuleCount
         self.state = state
         self.lastError = lastError
+        self.managedPresetID = managedPresetID
+        self.managedPresetEntryID = managedPresetEntryID
     }
 
     public var hostDisplayName: String {
-        if embeddedContent != nil { return "内嵌于管理配置" }
+        if isManual { return "手工规则 · 随管理配置同步" }
+        if embeddedContent != nil { return "Profile 内嵌规则" }
         return URL(string: url)?.host ?? url
     }
 
@@ -205,8 +255,80 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
         embeddedContent != nil
     }
 
+    public var isManual: Bool {
+        contentOrigin == .manual
+    }
+
+    public static func manual(
+        name: String = "",
+        content: String = "",
+        policy: String = "PROXY"
+    ) -> Self {
+        let id = UUID()
+        return Self(
+            id: id,
+            name: name,
+            url: "",
+            embeddedContent: content,
+            contentOrigin: .manual,
+            manualPublicationMode: .inline,
+            detachedFileName: defaultDetachedFileName(for: id),
+            format: .surgeRuleList,
+            policy: policy,
+            preservesSourcePolicy: true,
+            outputMode: .inlineMerged,
+            updateIntervalMinutes: 0
+        )
+    }
+
+    public var resolvedManualPublicationMode: ManualRulePublicationMode {
+        manualPublicationMode ?? .inline
+    }
+
+    public var publishesDetachedProfile: Bool {
+        isManual && resolvedManualPublicationMode == .detachedProfile
+    }
+
+    public var resolvedDetachedFileName: String {
+        Self.sanitizedDetachedFileName(
+            detachedFileName ?? Self.defaultDetachedFileName(for: id),
+            sourceID: id
+        )
+    }
+
+    public static func defaultDetachedFileName(for sourceID: UUID) -> String {
+        "Manual-Rules-\(sourceID.uuidString.prefix(8).lowercased()).dconf"
+    }
+
+    public static func sanitizedDetachedFileName(_ value: String, sourceID: UUID) -> String {
+        let invalid = CharacterSet(charactersIn: "/\\:?%*|\"<>")
+            .union(.controlCharacters)
+            .union(.newlines)
+        let parts = value.components(separatedBy: invalid).filter { !$0.isEmpty }
+        var base = parts
+            .joined(separator: "-")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".- "))
+        if base.lowercased().hasSuffix(".dconf") {
+            base.removeLast(6)
+        }
+        base = base
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: ".- "))
+        if base.isEmpty {
+            base = "Manual-Rules-\(sourceID.uuidString.prefix(8).lowercased())"
+        }
+        if base.count > 120 {
+            base = String(base.prefix(120)).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return "\(base).dconf"
+    }
+
     public var resolvedOutputMode: RuleSourceOutputMode {
-        outputMode ?? .inlineMerged
+        // Surge Rulesets are native URL references. Surge itself owns retrieval and
+        // refresh behavior; Surge Shallow only needs the URL, policy, and options.
+        if !isEmbedded && format == .surgeRuleset { return .remoteReference }
+        return outputMode ?? .inlineMerged
     }
 
     public var supportsRemoteRulesetReference: Bool {
@@ -234,6 +356,7 @@ public struct RuleSource: Identifiable, Codable, Hashable, Sendable {
     }
 
     public func isDue(globalIntervalMinutes: Int, now: Date = .now) -> Bool {
+        guard resolvedOutputMode == .inlineMerged else { return false }
         let minutes = updateIntervalMinutes > 0 ? updateIntervalMinutes : globalIntervalMinutes
         guard minutes > 0, let lastCheckedAt else { return true }
         return now.timeIntervalSince(lastCheckedAt) >= Double(minutes * 60)

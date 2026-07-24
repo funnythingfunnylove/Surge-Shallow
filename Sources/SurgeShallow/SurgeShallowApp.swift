@@ -26,7 +26,7 @@ struct SurgeShallowApp: App {
             SoftwareUpdateCommands(model: model)
 
             CommandMenu("Relay") {
-                Button("立即更新并合并") {
+                Button("合并生成") {
                     Task { await model.refresh(force: true) }
                 }
                 .keyboardShortcut("r", modifiers: [.command, .shift])
@@ -53,6 +53,8 @@ struct SurgeShallowApp: App {
                 .surgeTheme()
                 .synchronizeApplicationAppearance(appearance)
                 .frame(width: 620, height: 520)
+                .background(SurgeBackground())
+                .background(WindowGlassConfigurator().frame(width: 0, height: 0))
         }
     }
 }

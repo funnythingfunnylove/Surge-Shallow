@@ -80,4 +80,37 @@ final class ProfileDifferenceTests: XCTestCase {
             $0.key == "include-all-networks"
         })
     }
+
+    func testAdvancedSectionCatalogMatchesDocumentedPlatformAvailability() throws {
+        let names = ProfileSectionCatalog.advanced.map(\.name)
+
+        XCTAssertTrue(names.starts(with: [
+            "Host", "MITM", "Script", "URL Rewrite", "Header Rewrite",
+            "Body Rewrite", "Map Local", "SSID Setting", "Panel"
+        ]))
+        XCTAssertEqual(ProfileSectionCatalog.descriptor(named: "[host]")?.name, "Host")
+        XCTAssertTrue(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "Panel")).isAvailable(on: .iOS))
+        XCTAssertFalse(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "Panel")).isAvailable(on: .macOS))
+        XCTAssertTrue(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "DHCP")).isAvailable(on: .macOS))
+        XCTAssertFalse(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "DHCP")).isAvailable(on: .iOS))
+        XCTAssertTrue(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "Ruleset Streaming")).isAvailable(on: .macOS))
+        XCTAssertFalse(try XCTUnwrap(ProfileSectionCatalog.descriptor(named: "Ruleset Streaming")).isAvailable(on: .iOS))
+    }
+
+    func testCustomSectionNamesAreNormalizedDeduplicatedAndExcludeManagedSections() {
+        let items = [
+            ProfileDifferenceItem(section: "[WireGuard Office]", key: "private-key", value: "placeholder"),
+            .rawLine(section: "wireguard office", line: "self = 10.0.0.2/32"),
+            ProfileDifferenceItem(section: "General", key: "loglevel", value: "info"),
+            .rawLine(section: "Custom Future Section", line: "value")
+        ]
+
+        XCTAssertEqual(
+            ProfileSectionCatalog.customSectionNames(in: items),
+            ["WireGuard Office", "Custom Future Section"]
+        )
+        XCTAssertTrue(ProfileSectionCatalog.isValidCustomSectionName("[Future Section]"))
+        XCTAssertFalse(ProfileSectionCatalog.isValidCustomSectionName("[Rule]"))
+        XCTAssertFalse(ProfileSectionCatalog.isValidCustomSectionName("Bad]Section"))
+    }
 }

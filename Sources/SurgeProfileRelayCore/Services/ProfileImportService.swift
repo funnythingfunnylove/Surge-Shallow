@@ -202,6 +202,7 @@ public enum ProfileImportService {
                 name: uniqueSourceName("导入规则 · \(fileName)"),
                 url: "embedded://imported-profile/\(importedSources.count + 1)",
                 embeddedContent: content,
+                contentOrigin: .importedProfile,
                 format: .surgeRuleList,
                 policy: "DIRECT",
                 preservesSourcePolicy: true,

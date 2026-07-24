@@ -23,12 +23,43 @@ public struct RelayPersistence: Sendable {
     public let outputDirectory: URL
     public let applicationSupportDirectory: URL
 
+    private let maximumConflictChecks: Int
+    private let conflictRetryDelay: TimeInterval
+    private let unresolvedConflictCheck: @Sendable (URL) -> Bool
+    private let conflictRetryWait: @Sendable (TimeInterval) -> Void
+
     public init(
         outputDirectory: URL = Self.selectedOutputDirectory,
         applicationSupportDirectory: URL = RelayPaths.localApplicationSupportDirectory
     ) {
+        self.init(
+            outputDirectory: outputDirectory,
+            applicationSupportDirectory: applicationSupportDirectory,
+            maximumConflictChecks: 21,
+            conflictRetryDelay: 0.15,
+            unresolvedConflictCheck: { url in
+                !(NSFileVersion.unresolvedConflictVersionsOfItem(at: url) ?? []).isEmpty
+            },
+            conflictRetryWait: { delay in
+                Thread.sleep(forTimeInterval: delay)
+            }
+        )
+    }
+
+    init(
+        outputDirectory: URL,
+        applicationSupportDirectory: URL,
+        maximumConflictChecks: Int,
+        conflictRetryDelay: TimeInterval,
+        unresolvedConflictCheck: @escaping @Sendable (URL) -> Bool,
+        conflictRetryWait: @escaping @Sendable (TimeInterval) -> Void
+    ) {
         self.outputDirectory = outputDirectory.standardizedFileURL
         self.applicationSupportDirectory = applicationSupportDirectory.standardizedFileURL
+        self.maximumConflictChecks = maximumConflictChecks
+        self.conflictRetryDelay = conflictRetryDelay
+        self.unresolvedConflictCheck = unresolvedConflictCheck
+        self.conflictRetryWait = conflictRetryWait
     }
 
     public static var selectedOutputDirectory: URL {
@@ -79,8 +110,7 @@ public struct RelayPersistence: Sendable {
             document.settings.outputDirectory = outputDirectory.path
             return document
         }
-        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: configurationURL) ?? []
-        guard conflicts.isEmpty else {
+        guard !hasPersistentConflict(at: configurationURL) else {
             throw RelayPersistenceError.iCloudConflict(configurationURL.lastPathComponent)
         }
         do {
@@ -98,8 +128,7 @@ public struct RelayPersistence: Sendable {
     public func saveDocument(_ document: RelayDocument) throws {
         try prepareDirectories()
         let data = try Self.encoder.encode(document)
-        let conflicts = NSFileVersion.unresolvedConflictVersionsOfItem(at: configurationURL) ?? []
-        guard conflicts.isEmpty else {
+        guard !hasPersistentConflict(at: configurationURL) else {
             throw RelayPersistenceError.iCloudConflict(configurationURL.lastPathComponent)
         }
         if FileManager.default.fileExists(atPath: configurationURL.path) {
@@ -161,8 +190,33 @@ public struct RelayPersistence: Sendable {
         return url
     }
 
+    public func detachedPreviewURL(fileName: String) -> URL {
+        previewDirectory.appending(path: fileName)
+    }
+
+    public func writeDetachedPreview(_ content: String, fileName: String) throws -> URL {
+        let url = detachedPreviewURL(fileName: fileName)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try Data(content.utf8).write(to: url, options: .atomic)
+        return url
+    }
+
     private func cacheURL(for sourceID: UUID) -> URL {
         cacheDirectory.appending(path: "\(sourceID.uuidString.lowercased()).rules")
+    }
+
+    private func hasPersistentConflict(at url: URL) -> Bool {
+        let checkCount = max(1, maximumConflictChecks)
+        for index in 0..<checkCount {
+            if !unresolvedConflictCheck(url) { return false }
+            if index + 1 < checkCount {
+                conflictRetryWait(conflictRetryDelay)
+            }
+        }
+        return true
     }
 
     private func prepareDirectories() throws {

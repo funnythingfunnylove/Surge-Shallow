@@ -117,7 +117,7 @@ struct ProfileImportReviewView: View {
         VStack(alignment: .leading, spacing: SurgeSpacing.sm) {
             Label("应用后会替换的内容", systemImage: "arrow.triangle.2.circlepath")
                 .font(.headline)
-            Text("公共 General、Proxy、Proxy Group、高级公共段、现有规则源，以及所选平台的差异项与 FINAL 策略。每条 HTTP(S) RULE-SET 会保持为紧凑外部引用，不下载或展开正文；其他规则按原有顺序保留为内联片段。刷新周期、输出目录、历史记录和未选平台保持不变。")
+            Text("公共 General、Proxy、Proxy Group、高级公共段、现有规则源，以及所选平台的差异项与 FINAL 策略。每条 HTTP(S) RULE-SET 会保持为紧凑外部引用，不下载或展开正文；其他规则按原有顺序保留为内联片段。本地处理周期、输出目录、历史记录和未选平台保持不变。")
                 .font(.callout)
             Label("保存时会生成 relay.json.bak；不会立即生成或覆盖任何 Profile。", systemImage: "externaldrive.badge.checkmark")
                 .font(.caption)
@@ -149,7 +149,7 @@ struct ProfileImportReviewView: View {
             Button("取消") { model.cancelFullProfileImport() }
                 .keyboardShortcut(.cancelAction)
             Spacer()
-            Text("应用后请先在 Profiles 中检查，再执行更新并合并。")
+            Text("应用后请先在 Profiles 中检查，再执行合并生成。")
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Button("应用迁移") {

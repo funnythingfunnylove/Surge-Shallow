@@ -8,9 +8,9 @@ struct HistoryView: View {
         Group {
             if model.document.history.isEmpty {
                 ContentUnavailableView(
-                    "暂无更新记录",
+                    "暂无生成记录",
                     systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                    description: Text("完成一次更新或自动检查后，结果会保存在 iCloud 管理配置中。")
+                    description: Text("完成一次合并生成后，结果会保存在 iCloud 管理配置中。")
                 )
             } else {
                 List(model.document.history) { record in
@@ -45,6 +45,6 @@ struct HistoryView: View {
                 .scrollContentBackground(.hidden)
             }
         }
-        .navigationTitle("更新记录")
+        .navigationTitle("生成记录")
     }
 }

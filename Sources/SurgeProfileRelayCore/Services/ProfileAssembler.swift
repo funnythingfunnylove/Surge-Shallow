@@ -41,6 +41,37 @@ public struct ProfileLintResult: Sendable {
 public enum ProfileAssembler {
     public static let ownershipMarker = "# surge-profile-relay:managed"
 
+    public static func manualSourceMarker(for sourceID: UUID) -> String {
+        "# surge-profile-relay:manual-source=\(sourceID.uuidString.lowercased())"
+    }
+
+    public static func assembleDetachedRuleFile(
+        _ file: DetachedRuleFile,
+        generatedAt: Date = .now
+    ) throws -> String {
+        guard !file.rules.isEmpty else {
+            throw RelayEngineError.invalidConfiguration(
+                "独立规则文件 \(file.fileName) 没有可发布的规则。"
+            )
+        }
+        let hasFinal = file.rules.contains { rule in
+            RuleParser.splitTopLevelCSV(rule).first?.caseInsensitiveCompare("FINAL") == .orderedSame
+        }
+        guard !hasFinal else {
+            throw RelayEngineError.invalidConfiguration(
+                "独立规则文件 \(file.fileName) 不能包含 FINAL；FINAL 由目标 Profile 统一管理。"
+            )
+        }
+        let stamp = ISO8601DateFormatter().string(from: generatedAt)
+        return ([
+            ownershipMarker,
+            manualSourceMarker(for: file.sourceID),
+            "# 手工规则：\(file.sourceName)",
+            "# 生成时间：\(stamp)",
+            "[Rule]"
+        ] + file.rules).joined(separator: "\n") + "\n"
+    }
+
     public static func assemble(
         baseProfile: String,
         mergedRules: MergedRules,

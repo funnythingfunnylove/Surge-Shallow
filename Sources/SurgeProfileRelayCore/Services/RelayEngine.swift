@@ -46,6 +46,15 @@ public struct GeneratedSharedProfileInfo: Sendable {
     public var sections: [String]
 }
 
+public struct GeneratedDetachedRuleFileInfo: Sendable {
+    public var sourceID: UUID
+    public var fileName: String
+    public var outputURL: URL
+    public var previewURL: URL
+    public var content: String
+    public var ruleCount: Int
+}
+
 public struct RelayRefreshResult: Sendable {
     public var document: RelayDocument
     public var outcome: UpdateRecord.Outcome
@@ -53,6 +62,7 @@ public struct RelayRefreshResult: Sendable {
     public var details: String
     public var warnings: [String]
     public var generatedSharedProfile: GeneratedSharedProfileInfo?
+    public var generatedDetachedRuleFiles: [GeneratedDetachedRuleFileInfo]
     public var generatedProfiles: [GeneratedProfileInfo]
     public var totalRuleCount: Int
     public var duplicateCount: Int
@@ -66,6 +76,7 @@ public struct RelayRefreshResult: Sendable {
         details: String,
         warnings: [String] = [],
         generatedSharedProfile: GeneratedSharedProfileInfo? = nil,
+        generatedDetachedRuleFiles: [GeneratedDetachedRuleFileInfo] = [],
         generatedProfiles: [GeneratedProfileInfo] = [],
         totalRuleCount: Int = 0,
         duplicateCount: Int = 0
@@ -76,6 +87,7 @@ public struct RelayRefreshResult: Sendable {
         self.details = details
         self.warnings = warnings
         self.generatedSharedProfile = generatedSharedProfile
+        self.generatedDetachedRuleFiles = generatedDetachedRuleFiles
         self.generatedProfiles = generatedProfiles
         self.totalRuleCount = totalRuleCount
         self.duplicateCount = duplicateCount
@@ -111,6 +123,29 @@ public actor RelayEngine {
                 document: document,
                 title: "公共配置无效，未生成 Profile",
                 details: sharedIssues.joined(separator: "\n"),
+                warnings: []
+            )
+        }
+
+        let allowedManualPlatforms: Set<Set<RelayPlatform>> = [
+            [.macOS],
+            Set(RelayPlatform.allCases)
+        ]
+        let invalidManualSources = enabledSources.compactMap { source -> String? in
+            guard source.isManual else { return nil }
+            guard source.embeddedContent != nil else {
+                return "\(source.name)：手工规则内容缺失"
+            }
+            guard allowedManualPlatforms.contains(source.platforms) else {
+                return "\(source.name)：手工规则仅支持“仅 macOS”或“macOS + iOS”"
+            }
+            return nil
+        }
+        guard invalidManualSources.isEmpty else {
+            return failureResult(
+                document: document,
+                title: "手工规则配置无效，未生成 Profile",
+                details: invalidManualSources.joined(separator: "\n"),
                 warnings: []
             )
         }
@@ -205,7 +240,15 @@ public actor RelayEngine {
             TargetProfile.sanitizedFileName($0.outputFileName, platform: $0.platform).lowercased()
         }
         let sharedName = SharedProfile.sanitizedFileName(document.sharedProfile.outputFileName)
-        let outputNames = enabledTargets.isEmpty ? targetNames : targetNames + [sharedName.lowercased()]
+        let enabledTargetPlatforms = Set(enabledTargets.map(\.platform))
+        let detachedNames = enabledSources.compactMap { source -> String? in
+            guard source.publishesDetachedProfile,
+                  !source.platforms.isDisjoint(with: enabledTargetPlatforms) else { return nil }
+            return source.resolvedDetachedFileName.lowercased()
+        }
+        let outputNames = enabledTargets.isEmpty
+            ? targetNames
+            : targetNames + [sharedName.lowercased()] + detachedNames
         let duplicateNames = Dictionary(grouping: outputNames, by: { $0 })
             .filter { $0.value.count > 1 }
             .keys
@@ -213,7 +256,7 @@ public actor RelayEngine {
             return failureResult(
                 document: document,
                 title: "输出文件名重复",
-                details: "每个目标必须使用不同的文件名：\(duplicateNames.sorted().joined(separator: ", "))",
+                details: "每个 Profile 与独立 .dconf 必须使用不同的文件名：\(duplicateNames.sorted().joined(separator: ", "))",
                 warnings: sourceWarnings
             )
         }
@@ -241,17 +284,56 @@ public actor RelayEngine {
         }()
 
         var stagedShared: StagedSharedProfile?
+        var stagedDetached: [StagedDetachedRuleFile] = []
         var staged: [StagedProfile] = []
         var allWarnings = sourceWarnings
         var totalRules = 0
         var totalDuplicates = 0
+        let generatedAt = Date()
         do {
+            var detachedBySource: [UUID: DetachedRuleFile] = [:]
+            for merged in mergedByPlatform.values {
+                for file in merged.detachedRuleFiles {
+                    if let existing = detachedBySource[file.sourceID], existing != file {
+                        throw RelayEngineError.invalidConfiguration(
+                            "独立规则文件 \(file.fileName) 在不同平台产生了不一致内容。"
+                        )
+                    }
+                    detachedBySource[file.sourceID] = file
+                }
+            }
+            for source in document.sources {
+                guard let file = detachedBySource[source.id] else { continue }
+                let content = try ProfileAssembler.assembleDetachedRuleFile(
+                    file,
+                    generatedAt: generatedAt
+                )
+                let preview = try persistence.writeDetachedPreview(
+                    content,
+                    fileName: file.fileName
+                )
+                try publisher.validateDetachedDestination(
+                    fileName: file.fileName,
+                    sourceID: file.sourceID,
+                    directory: URL(
+                        filePath: document.settings.outputDirectory,
+                        directoryHint: .isDirectory
+                    )
+                )
+                stagedDetached.append(StagedDetachedRuleFile(
+                    file: file,
+                    content: content,
+                    previewURL: preview
+                ))
+            }
+
             var sharedSections: [String] = []
             if !enabledTargets.isEmpty {
                 let shared = try ProfileAssembler.assembleShared(
                     baseProfile: document.sharedProfile.baseProfile,
                     sharedRules: sharedRuleConfiguration?.rules,
-                    finalPolicy: sharedRuleConfiguration?.finalPolicy
+                    finalPolicy: sharedRuleConfiguration?.finalPolicy,
+                    generatedAt: generatedAt
                 )
                 sharedSections = shared.sections
                 allWarnings.append(contentsOf: shared.warnings)
@@ -279,7 +361,8 @@ public actor RelayEngine {
                     sharedFileName: document.sharedProfile.outputFileName,
                     sharedSections: sharedSections,
                     mergedRules: merged,
-                    finalPolicy: target.finalPolicy
+                    finalPolicy: target.finalPolicy,
+                    generatedAt: generatedAt
                 )
                 let preview = try persistence.writePreview(assembled.content, for: target.platform)
                 let validation: SurgeValidationResult
@@ -323,9 +406,26 @@ public actor RelayEngine {
 
         await progress?(RelayProgress(fraction: 0.82, message: "正在原子写入 iCloud…"))
         var generatedShared: GeneratedSharedProfileInfo?
+        var generatedDetached: [GeneratedDetachedRuleFileInfo] = []
         var generated: [GeneratedProfileInfo] = []
         do {
             let directory = URL(filePath: document.settings.outputDirectory, directoryHint: .isDirectory)
+            for item in stagedDetached {
+                let output = try publisher.publishDetachedRuleFile(
+                    content: item.content,
+                    fileName: item.file.fileName,
+                    sourceID: item.file.sourceID,
+                    directory: directory
+                )
+                generatedDetached.append(GeneratedDetachedRuleFileInfo(
+                    sourceID: item.file.sourceID,
+                    fileName: item.file.fileName,
+                    outputURL: output,
+                    previewURL: item.previewURL,
+                    content: item.content,
+                    ruleCount: item.file.rules.count
+                ))
+            }
             if let item = stagedShared {
                 let output = try publisher.publish(
                     content: item.assembled.content,
@@ -370,11 +470,11 @@ public actor RelayEngine {
             )
         }
 
-        await progress?(RelayProgress(fraction: 0.98, message: "正在保存更新记录…"))
+        await progress?(RelayProgress(fraction: 0.98, message: "正在保存生成记录…"))
         let usedStaleCache = materials.values.contains { $0.state == .staleCache }
         let uniqueWarnings = Array(Set(allWarnings)).sorted()
         let outcome: UpdateRecord.Outcome = (usedStaleCache || !uniqueWarnings.isEmpty) ? .warning : .success
-        let title = outcome == .success ? "Profile 已更新" : "Profile 已更新（有提示）"
+        let title = outcome == .success ? "Profile 已生成" : "Profile 已生成（有提示）"
         let details = generated.isEmpty
             ? "没有启用的目标 Profile。"
             : generated.map { "\($0.platform.displayName)：\($0.ruleCount) 条规则" }.joined(separator: " · ")
@@ -393,6 +493,7 @@ public actor RelayEngine {
             details: details,
             warnings: uniqueWarnings,
             generatedSharedProfile: generatedShared,
+            generatedDetachedRuleFiles: generatedDetached,
             generatedProfiles: generated,
             totalRuleCount: totalRules,
             duplicateCount: totalDuplicates
@@ -424,7 +525,8 @@ public actor RelayEngine {
         force: Bool
     ) async -> SourceMaterial {
         let cached = try? persistence.cachedContent(for: source.id)
-        let mustFetch = force
+        let mustFetch = source.isEmbedded
+            || force
             || source.isDue(globalIntervalMinutes: settings.refreshIntervalMinutes)
             || cached == nil
 
@@ -553,10 +655,12 @@ public actor RelayEngine {
     ) throws -> SourceMaterial {
         let parsed = try RuleParser.parse(content, for: source)
         var warnings: [String] = []
-        do {
-            try persistence.saveCachedContent(content, for: source.id)
-        } catch {
-            warnings.append("\(source.name)：新内容已使用，但缓存写入失败：\(error.localizedDescription)")
+        if !source.isEmbedded {
+            do {
+                try persistence.saveCachedContent(content, for: source.id)
+            } catch {
+                warnings.append("\(source.name)：新内容已使用，但缓存写入失败：\(error.localizedDescription)")
+            }
         }
         let changed = source.contentHash != hash
         return SourceMaterial(
@@ -602,5 +706,11 @@ private struct StagedProfile: Sendable {
 private struct StagedSharedProfile: Sendable {
     var profile: SharedProfile
     var assembled: AssembledSharedProfile
+    var previewURL: URL
+}
+
+private struct StagedDetachedRuleFile: Sendable {
+    var file: DetachedRuleFile
+    var content: String
     var previewURL: URL
 }

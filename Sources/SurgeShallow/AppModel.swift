@@ -22,7 +22,7 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .proxy: "Proxy"
         case .profiles: "Profiles"
         case .modules: "模块"
-        case .history: "更新记录"
+        case .history: "生成记录"
         case .settings: "设置"
         }
     }
@@ -51,10 +51,10 @@ enum SidebarUpdateStatus: Equatable {
     var title: String {
         switch self {
         case .refreshing(let message): message
-        case .current: "规则已是最新"
-        case .warning: "已更新，有提示"
-        case .failed: "规则更新失败"
-        case .pending: "等待更新规则"
+        case .current: "Profile 已生成"
+        case .warning: "已生成，有提示"
+        case .failed: "合并生成失败"
+        case .pending: "等待合并生成"
         case .empty: "尚未添加规则源"
         }
     }
@@ -165,7 +165,7 @@ final class AppModel {
         isStarted = true
 
         if ProcessInfo.processInfo.arguments.contains("--verification-mode") {
-            statusMessage = "验证模式：未启动自动刷新"
+            statusMessage = "验证模式：未启动自动合并"
             if let releasePath = ProcessInfo.processInfo.environment[
                 "SURGE_SHALLOW_VERIFICATION_RELEASE_JSON"
             ], !releasePath.isEmpty {
@@ -188,7 +188,9 @@ final class AppModel {
         Task { await moduleManagement.startConfiguredRuntime() }
         startSoftwareUpdateScheduler()
         restartScheduler()
-        if document.settings.refreshOnLaunch && document.sources.contains(where: { $0.isEnabled }) {
+        if document.settings.refreshOnLaunch && document.sources.contains(where: {
+            $0.isEnabled && $0.resolvedOutputMode == .inlineMerged
+        }) {
             Task { await refresh(force: false) }
         }
     }
@@ -197,7 +199,7 @@ final class AppModel {
         guard !isRefreshing else { return }
         isRefreshing = true
         progressFraction = 0
-        statusMessage = force ? "正在检查所有上游…" : "正在检查到期上游…"
+        statusMessage = force ? "正在合并生成 Profile…" : "正在处理到期内联源…"
         defer { isRefreshing = false }
 
         let persistence = RelayPersistence(outputDirectory: outputDirectoryURL)
@@ -298,17 +300,7 @@ final class AppModel {
 
     func upsertSource(_ source: RuleSource) {
         guard canMutateConfiguration() else { return }
-        var source = source
-        if let reference = RemoteRulesetReference.parse(source.url) {
-            source.url = reference.url
-            source.policy = reference.policy
-            source.format = .surgeRuleset
-            source.preservesSourcePolicy = false
-            source.rulesetOptions = reference.options
-            source.outputMode = .remoteReference
-        } else if source.format == .surgeRuleset {
-            source.preservesSourcePolicy = false
-        }
+        let source = normalizedSource(source)
         if let index = document.sources.firstIndex(where: { $0.id == source.id }) {
             let old = document.sources[index]
             document.sources[index] = source
@@ -317,7 +309,10 @@ final class AppModel {
                 || old.format != source.format
                 || old.policy != source.policy
                 || old.rulesetOptions != source.rulesetOptions
-                || old.outputMode != source.outputMode {
+                || old.outputMode != source.outputMode
+                || old.manualPublicationMode != source.manualPublicationMode
+                || old.detachedFileName != source.detachedFileName
+                || old.platforms != source.platforms {
                 document.sources[index].etag = nil
                 document.sources[index].lastModified = nil
                 document.sources[index].lastCheckedAt = nil
@@ -330,13 +325,36 @@ final class AppModel {
         save()
     }
 
+    private func normalizedSource(_ input: RuleSource) -> RuleSource {
+        var source = input
+        if source.isManual {
+            source.url = ""
+            source.format = .surgeRuleList
+            source.outputMode = .inlineMerged
+            source.detachedFileName = source.resolvedDetachedFileName
+        } else {
+            if let reference = RemoteRulesetReference.parse(source.url) {
+                source.url = reference.url
+                source.policy = reference.policy
+                source.format = .surgeRuleset
+                source.rulesetOptions = reference.options
+            }
+            if !source.isEmbedded && source.format == .surgeRuleset {
+                source.preservesSourcePolicy = false
+                source.outputMode = .remoteReference
+                source.updateIntervalMinutes = 0
+            }
+        }
+        return source
+    }
+
     @discardableResult
     func addSources(_ sources: [RuleSource]) -> Int {
         guard canMutateConfiguration() else { return 0 }
         var existingURLs = Set(document.sources.map {
             $0.url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         })
-        let additions = sources.filter { source in
+        let additions = sources.map(normalizedSource).filter { source in
             let url = source.url.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             guard !url.isEmpty else { return false }
             return existingURLs.insert(url).inserted
@@ -347,6 +365,39 @@ final class AppModel {
         save()
         statusMessage = "已批量添加 \(additions.count) 个 GitHub 规则源"
         return additions.count
+    }
+
+    @discardableResult
+    func applyRulePreset(_ preset: RuleRoutingPreset, proxyPolicy: String) -> Bool {
+        guard canMutateConfiguration() else { return false }
+        let normalizedPolicy = proxyPolicy.trimmingCharacters(in: .whitespacesAndNewlines)
+        let availablePolicies = RelayPolicyCatalog.proxyNames(in: document.sharedProfile)
+            + RelayPolicyCatalog.groupNames(in: document.sharedProfile)
+        guard availablePolicies.contains(where: {
+            $0.caseInsensitiveCompare(normalizedPolicy) == .orderedSame
+        }) else {
+            presentedError = "请先在 Proxy 页面创建至少一个代理或策略组，再应用一键规则集。"
+            return false
+        }
+
+        do {
+            let result = try preset.apply(to: &document, proxyPolicy: normalizedPolicy)
+            let persistence = RelayPersistence(outputDirectory: outputDirectoryURL)
+            for sourceID in result.removedSourceIDs {
+                try? persistence.removeCache(for: sourceID)
+            }
+            selectedSourceID = result.installedSourceIDs.first
+            if result.changed {
+                save()
+                statusMessage = "已应用\(preset.title)：\(result.installedSourceIDs.count) 个规则源，FINAL = \(result.finalPolicy)"
+            } else {
+                statusMessage = "\(preset.title)已是当前一键规则集"
+            }
+            return true
+        } catch {
+            presentedError = "应用一键规则集失败：\(error.localizedDescription)"
+            return false
+        }
     }
 
     func setSourceEnabled(_ id: UUID, enabled: Bool) {
@@ -496,7 +547,7 @@ final class AppModel {
             try persistence.saveDocument(document)
             pendingProfileImport = nil
             selection = .profiles
-            statusMessage = "已迁移 \(draft.fileName)，请检查后更新并合并"
+            statusMessage = "已迁移 \(draft.fileName)，请检查后合并生成"
         } catch {
             document = previous
             presentedError = "迁移配置未保存：\(error.localizedDescription)"
@@ -652,7 +703,9 @@ final class AppModel {
                 try? await Task.sleep(for: .seconds(60))
                 guard !Task.isCancelled, let self else { return }
                 let shouldRefresh = self.document.sources.contains {
-                    $0.isEnabled && $0.isDue(globalIntervalMinutes: self.document.settings.refreshIntervalMinutes)
+                    $0.isEnabled
+                        && $0.resolvedOutputMode == .inlineMerged
+                        && $0.isDue(globalIntervalMinutes: self.document.settings.refreshIntervalMinutes)
                 }
                 if shouldRefresh { await self.refresh(force: false) }
             }
@@ -695,7 +748,7 @@ final class AppModel {
 
     private func canMutateConfiguration() -> Bool {
         guard !isRefreshing else {
-            presentedError = "正在生成 Profile。为避免发布时配置发生变化，请等待本次更新完成后再编辑。"
+            presentedError = "正在生成 Profile。为避免发布时配置发生变化，请等待本次合并生成完成后再编辑。"
             return false
         }
         return true

@@ -43,12 +43,34 @@ public struct MergedRules: Sendable {
     public var ruleCount: Int
     public var duplicateCount: Int
     public var warnings: [String]
+    public var detachedRuleFiles: [DetachedRuleFile]
 
-    public init(lines: [String], ruleCount: Int, duplicateCount: Int, warnings: [String]) {
+    public init(
+        lines: [String],
+        ruleCount: Int,
+        duplicateCount: Int,
+        warnings: [String],
+        detachedRuleFiles: [DetachedRuleFile] = []
+    ) {
         self.lines = lines
         self.ruleCount = ruleCount
         self.duplicateCount = duplicateCount
         self.warnings = warnings
+        self.detachedRuleFiles = detachedRuleFiles
+    }
+}
+
+public struct DetachedRuleFile: Hashable, Sendable {
+    public var sourceID: UUID
+    public var sourceName: String
+    public var fileName: String
+    public var rules: [String]
+
+    public init(sourceID: UUID, sourceName: String, fileName: String, rules: [String]) {
+        self.sourceID = sourceID
+        self.sourceName = sourceName
+        self.fileName = fileName
+        self.rules = rules
     }
 }
 
@@ -207,7 +229,9 @@ public enum RuleParser {
             // A local Profile import may reference a detached Rule section. Preserve that
             // explicit user-owned include, while remote sources remain unable to inject
             // Profile directives into generated output.
-            if source.isEmbedded, line.lowercased().hasPrefix("#!include") {
+            if source.isEmbedded,
+               !source.isManual,
+               line.lowercased().hasPrefix("#!include") {
                 return line
             }
             return nil
@@ -391,6 +415,7 @@ public enum RuleMerger {
         var seen = Set<String>()
         var output: [String] = []
         var warnings: [String] = []
+        var detachedRuleFiles: [DetachedRuleFile] = []
         var duplicates = 0
         var count = 0
 
@@ -402,6 +427,36 @@ public enum RuleMerger {
             }
 
             guard let parsed = item.parsed else { continue }
+            if item.source.publishesDetachedProfile {
+                var localSeen = Set<String>()
+                var detachedRules: [String] = []
+                for rule in parsed.rules where !rule.hasPrefix("#!") {
+                    let key = RuleParser.canonicalKey(for: rule)
+                    guard localSeen.insert(key).inserted else {
+                        duplicates += 1
+                        continue
+                    }
+                    // Keep detached content independent of platform-specific sources that
+                    // precede it. If the same rule already appeared, Surge still evaluates
+                    // the earlier source first; later sources remain deduplicated normally.
+                    if !seen.insert(key).inserted { duplicates += 1 }
+                    detachedRules.append(rule)
+                }
+                guard !detachedRules.isEmpty else { continue }
+                if !output.isEmpty { output.append("") }
+                let safeName = safeSourceName(item.source.name)
+                output.append("# --- \(safeName) · \(detachedRules.count) 条 · dconf ---")
+                output.append("#!include \(item.source.resolvedDetachedFileName)")
+                detachedRuleFiles.append(DetachedRuleFile(
+                    sourceID: item.source.id,
+                    sourceName: safeName,
+                    fileName: item.source.resolvedDetachedFileName,
+                    rules: detachedRules
+                ))
+                count += detachedRules.count
+                warnings.append(contentsOf: parsed.warnings.map { "\(item.source.name)：\($0)" })
+                continue
+            }
             var sourceRules: [String] = []
             for rule in parsed.rules {
                 let key = RuleParser.canonicalKey(for: rule)
@@ -413,10 +468,7 @@ public enum RuleMerger {
             }
             guard !sourceRules.isEmpty else { continue }
             if !output.isEmpty { output.append("") }
-            let safeName = item.source.name
-                .replacingOccurrences(of: "\r", with: " ")
-                .replacingOccurrences(of: "\n", with: " ")
-                .trimmingCharacters(in: .whitespaces)
+            let safeName = safeSourceName(item.source.name)
             let actualRuleCount = sourceRules.filter { !$0.hasPrefix("#!") }.count
             output.append("# --- \(safeName) · \(actualRuleCount) 条 ---")
             output.append(contentsOf: sourceRules)
@@ -424,7 +476,13 @@ public enum RuleMerger {
             warnings.append(contentsOf: parsed.warnings.map { "\(item.source.name)：\($0)" })
         }
 
-        return MergedRules(lines: output, ruleCount: count, duplicateCount: duplicates, warnings: warnings)
+        return MergedRules(
+            lines: output,
+            ruleCount: count,
+            duplicateCount: duplicates,
+            warnings: warnings,
+            detachedRuleFiles: detachedRuleFiles
+        )
     }
 
     public static func merge(
@@ -437,5 +495,12 @@ public enum RuleMerger {
             return (source, item.parsed)
         }
         return merge(inlineSources, for: platform)
+    }
+
+    private static func safeSourceName(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .trimmingCharacters(in: .whitespaces)
     }
 }

@@ -19,7 +19,7 @@ struct RootView: View {
                             Button {
                                 Task { await model.refresh(force: true) }
                             } label: {
-                                Label("更新并合并", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
+                                Label("合并生成", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                             }
                             .disabled(model.isRefreshing)
                             .buttonStyle(.glassProminent)
@@ -29,6 +29,7 @@ struct RootView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .background(SurgeBackground())
+        .background(WindowGlassConfigurator().frame(width: 0, height: 0))
         .fileImporter(
             isPresented: $model.isChoosingProfileImport,
             allowedContentTypes: [.plainText, .data],
@@ -100,10 +101,7 @@ struct RootView: View {
         case .proxy: ProxyView()
         case .profiles: ProfilesView()
         case .modules:
-            ModuleManagementView(
-                controller: model.moduleManagement,
-                onOpenSettings: { model.selection = .settings }
-            )
+            ModuleManagementView(controller: model.moduleManagement)
         case .history: HistoryView()
         case .settings: SettingsView()
         }

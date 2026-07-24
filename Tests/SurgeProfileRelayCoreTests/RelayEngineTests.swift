@@ -3,7 +3,7 @@ import XCTest
 @testable import SurgeProfileRelayCore
 
 final class RelayEngineTests: XCTestCase {
-    func testCompactRulesetReferenceSkipsFetcherAndKeepsGeneratedProfileSmall() async throws {
+    func testRulesetAlwaysUsesURLReferenceAndSkipsFetcherEvenWhenLegacyModeWasInline() async throws {
         let sourceID = UUID()
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -11,7 +11,7 @@ final class RelayEngineTests: XCTestCase {
         let engine = RelayEngine(fetcher: fetcher)
         var document = makeDocument(sourceID: sourceID, directory: directory)
         document.sources[0].format = .surgeRuleset
-        document.sources[0].outputMode = .remoteReference
+        document.sources[0].outputMode = .inlineMerged
         document.sources[0].rulesetOptions = [.noResolve, .extendedMatching]
 
         let result = await engine.refresh(

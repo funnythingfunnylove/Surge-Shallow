@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SurgeModuleManagement
 import SurgeProfileRelayCore
@@ -61,23 +62,23 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("规则更新") {
+            Section("自动合并生成") {
                 Toggle(
-                    "自动检查规则源",
+                    "自动处理需要本地转换的规则源",
                     isOn: Binding(
                         get: { model.document.settings.automaticallyRefresh },
                         set: { model.document.settings.automaticallyRefresh = $0; model.save() }
                     )
                 )
                 Toggle(
-                    "应用启动时检查",
+                    "应用启动时处理并生成",
                     isOn: Binding(
                         get: { model.document.settings.refreshOnLaunch },
                         set: { model.document.settings.refreshOnLaunch = $0; model.save() }
                     )
                 )
                 Picker(
-                    "默认检查频率",
+                    "内联规则源处理频率",
                     selection: Binding(
                         get: { model.document.settings.refreshIntervalMinutes },
                         set: { model.document.settings.refreshIntervalMinutes = $0; model.save() }
@@ -88,6 +89,9 @@ struct SettingsView: View {
                     Text("每 6 小时").tag(360)
                     Text("每天").tag(1_440)
                 }
+                Text("Surge Ruleset 仅保存 URL、策略与参数，由 Surge 自行加载；不会被 Surge Shallow 下载、缓存或定时更新。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Toggle(
                     "登录时启动",
                     isOn: Binding(
@@ -171,10 +175,86 @@ struct SettingsView: View {
             }
 
             Section("关于") {
-                LabeledContent("应用", value: "Surge Shallow")
+                HStack(spacing: 12) {
+                    Image(nsImage: NSApplication.shared.applicationIconImage)
+                        .resizable()
+                        .interpolation(.high)
+                        .antialiased(true)
+                        .scaledToFit()
+                        .frame(width: 54, height: 54)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Surge Shallow")
+                            .font(.headline)
+                        Text("版本 \(softwareUpdate.currentVersion) (\(softwareUpdate.currentBuild))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityElement(children: .combine)
                 LabeledContent("目标系统", value: "macOS 26")
-                LabeledContent("配置规范", value: "Surge Profile / Rule")
+                LabeledContent("配置规范", value: "Surge Profile / Rule / Module")
                 Link("打开 Surge 配置文档", destination: URL(string: "https://manual.nssurge.com/overview/configuration.html")!)
+
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Surge Shallow 以 MIT License 开源；原生模块管理基于 Apache License 2.0 授权的 SurgeRelay-macOS 进行整合与适配。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        aboutLink(
+                            title: "Surge Shallow",
+                            detail: "MIT License",
+                            systemImage: "doc.text",
+                            destination: "https://github.com/funnythingfunnylove/Surge-Shallow/blob/main/LICENSE"
+                        )
+                        aboutLink(
+                            title: "SurgeRelay-macOS",
+                            detail: "Apache License 2.0",
+                            systemImage: "doc.text",
+                            destination: "https://github.com/EEliberto/SurgeRelay-macOS/blob/b19d0dd6d6b9593be9cdf01c578de76c55d43150/LICENSE"
+                        )
+                        aboutLink(
+                            title: "第三方声明",
+                            detail: "THIRD_PARTY_NOTICES.md",
+                            systemImage: "list.bullet.rectangle",
+                            destination: "https://github.com/funnythingfunnylove/Surge-Shallow/blob/main/THIRD_PARTY_NOTICES.md"
+                        )
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Label("开源许可", systemImage: "checkmark.seal")
+                }
+
+                DisclosureGroup {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("特别感谢 SurgeRelay-macOS 项目及其作者公开的源码与设计积累，也感谢 Script Hub 与 Surge 为模块转换和配置生态提供的基础能力。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        aboutLink(
+                            title: "Surge Relay",
+                            detail: "EEliberto/SurgeRelay-macOS",
+                            systemImage: "shippingbox",
+                            destination: "https://github.com/EEliberto/SurgeRelay-macOS"
+                        )
+                        aboutLink(
+                            title: "Script Hub",
+                            detail: "github.com/Script-Hub-Org",
+                            systemImage: "arrow.triangle.branch",
+                            destination: "https://github.com/Script-Hub-Org"
+                        )
+                        aboutLink(
+                            title: "Surge",
+                            detail: "nssurge.com",
+                            systemImage: "bolt.horizontal.circle",
+                            destination: "https://nssurge.com"
+                        )
+                    }
+                    .padding(.top, 8)
+                } label: {
+                    Label("感谢", systemImage: "heart")
+                }
             }
         }
         .scrollContentBackground(.hidden)
@@ -194,5 +274,37 @@ struct SettingsView: View {
 
     private var softwareUpdateStatusSymbol: String {
         model.softwareUpdate.phase.presentation.symbol
+    }
+
+    private func aboutLink(
+        title: String,
+        detail: String,
+        systemImage: String,
+        destination: String
+    ) -> some View {
+        Link(destination: URL(string: destination)!) {
+            HStack(spacing: 10) {
+                Image(systemName: systemImage)
+                    .font(.body.weight(.medium))
+                    .foregroundStyle(SurgePalette.accent)
+                    .frame(width: 24)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "arrow.up.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .accessibilityHidden(true)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -19,6 +19,25 @@ final class RuleParserTests: XCTestCase {
         )
     }
 
+    func testSurgeRulesetCannotBeScheduledOrExpandedLocally() {
+        let source = RuleSource(
+            name: "Reference only",
+            url: "https://rules.example.com/reference-only.list",
+            format: .surgeRuleset,
+            policy: "PROXY",
+            outputMode: .inlineMerged,
+            lastCheckedAt: nil
+        )
+
+        XCTAssertEqual(source.outputMode, .inlineMerged)
+        XCTAssertEqual(source.resolvedOutputMode, .remoteReference)
+        XCTAssertFalse(source.isDue(globalIntervalMinutes: 15))
+        XCTAssertEqual(
+            source.remoteRulesetDirective,
+            "RULE-SET,https://rules.example.com/reference-only.list,PROXY"
+        )
+    }
+
     func testAutomaticDetectionFindsProfileRuleSection() throws {
         let content = """
         [General]

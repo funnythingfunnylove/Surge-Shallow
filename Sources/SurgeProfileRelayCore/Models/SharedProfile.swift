@@ -93,10 +93,9 @@ public struct SharedProfile: Codable, Hashable, Sendable {
         )
     }
 
-    public static let reusableSections = [
-        "Host", "MITM", "Script", "URL Rewrite", "Header Rewrite",
-        "Body Rewrite", "Map Local", "SSID Setting", "Panel"
-    ]
+    public static var reusableSections: [String] {
+        ProfileSectionCatalog.advanced.map(\.name)
+    }
 
     public static var commonOptionsCommentTemplate: String {
         """

@@ -9,8 +9,8 @@ struct DashboardView: View {
             VStack(alignment: .leading, spacing: 22) {
                 PageHeader(
                     eyebrow: "Surge Shallow",
-                    title: "让每一端始终保持最新",
-                    detail: "集中管理规则、代理与平台差异，通过 iCloud 把生成后的 Profile 安全同步到 Mac、iPhone 与 iPad。"
+                    title: "让 Surge 更好用，一键管理多端配置与模块",
+                    detail: "在一个原生 macOS App 中管理规则、代理、Profile 与模块，再通过 Surge iCloud 安全同步到 Mac、iPhone 与 iPad。"
                 )
 
                 statusHero
@@ -76,7 +76,7 @@ struct DashboardView: View {
                         ProgressView(value: model.progressFraction)
                             .frame(maxWidth: 360)
                     } else if let date = model.lastSuccessfulUpdate {
-                        Text("上次成功：\(date.formatted(date: .abbreviated, time: .shortened))")
+                        Text("上次生成：\(date.formatted(date: .abbreviated, time: .shortened))")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                     } else {
@@ -99,7 +99,7 @@ struct DashboardView: View {
                         Button {
                             Task { await model.refresh(force: true) }
                         } label: {
-                            Label("立即更新", systemImage: "arrow.clockwise")
+                            Label("合并生成", systemImage: "arrow.trianglehead.2.clockwise.rotate.90")
                         }
                         .buttonStyle(.glassProminent)
                         .disabled(model.isRefreshing)
@@ -159,7 +159,7 @@ struct DashboardView: View {
     private func warnings(_ warnings: [String]) -> some View {
         RelayCard {
             VStack(alignment: .leading, spacing: 10) {
-                Label("本次更新提示", systemImage: "exclamationmark.triangle.fill")
+                Label("本次生成提示", systemImage: "exclamationmark.triangle.fill")
                     .font(.headline)
                     .foregroundStyle(.orange)
                 ForEach(warnings.prefix(8), id: \.self) { warning in

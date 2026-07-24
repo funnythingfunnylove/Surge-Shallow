@@ -3,6 +3,13 @@ import XCTest
 @testable import SurgeShallow
 
 final class SidebarUpdateStatusTests: XCTestCase {
+    func testUserFacingTitlesDescribeGenerationInsteadOfRulesetUpdates() {
+        XCTAssertEqual(SidebarUpdateStatus.current.title, "Profile 已生成")
+        XCTAssertEqual(SidebarUpdateStatus.warning.title, "已生成，有提示")
+        XCTAssertEqual(SidebarUpdateStatus.failed.title, "合并生成失败")
+        XCTAssertEqual(SidebarUpdateStatus.pending.title, "等待合并生成")
+    }
+
     func testRefreshingStatusTakesPriorityAndKeepsProgressMessage() {
         XCTAssertEqual(
             SidebarUpdateStatus.resolve(
